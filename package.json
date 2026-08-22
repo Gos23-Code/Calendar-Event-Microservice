@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
-    "next": "16.2.9",
+    "next": "16.3.0",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
@@ -28,7 +28,7 @@
     "@types/react-dom": "^19",
     "@types/supertest": "^7.2.1",
     "eslint": "^9",
-    "eslint-config-next": "16.2.9",
+    "eslint-config-next": "16.3.0",
     "jest": "^30.4.2",
     "next-router-mock": "^1.0.5",
     "supertest": "^7.2.2",

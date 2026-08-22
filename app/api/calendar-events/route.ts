@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/infrastructure/database/supabase/client';
 import { EventType } from '@/domain/enums/EventType';
 
+// ============================================
+// POST: Crear un nuevo evento
+// ============================================
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -21,31 +24,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 🔥 INTENTAR OBTENER EL USUARIO DEL TOKEN (si existe)
-    let userId = '00000000-0000-0000-0000-000000000000'; // Default: usuario anónimo
-    
-    const authHeader = request.headers.get('Authorization');
-    if (authHeader) {
-      try {
-        const token = authHeader.replace('Bearer ', '');
-        const { data: { user } } = await supabase.auth.getUser(token);
-        
-        if (user) {
-          userId = user.id; // 👈 Usuario autenticado, usar su ID real
-          console.log('✅ Usuario autenticado:', user.email, 'ID:', userId);
-        }
-      } catch {
-        console.log('⚠️ Token inválido o expirado, usando usuario anónimo');
-      }
-    } else {
-      console.log('👤 Sin token, usando usuario anónimo (00000000...)');
+    // Validar que userId esté presente
+    if (!body.userId) {
+      return NextResponse.json(
+        { error: 'User ID is required in the body' },
+        { status: 401 }
+      );
     }
+
+    console.log('📝 Creando evento para userId:', body.userId);
 
     // Insertar con el user_id correspondiente
     const { data, error } = await supabase
       .from('calendar_events')
       .insert({
-        user_id: userId, // 👈 Aquí va el ID correspondiente
+        user_id: body.userId,
         pet_id: body.petId,
         title: body.title,
         description: body.description || null,
@@ -64,10 +57,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({
-      ...data,
-      auth_mode: userId === '00000000-0000-0000-0000-000000000000' ? 'anonymous' : 'authenticated'
-    }, { status: 201 });
+    return NextResponse.json(data, { status: 201 });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return NextResponse.json(
@@ -77,35 +67,28 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET: Listar eventos (con o sin autenticación)
+// ============================================
+// GET: Listar eventos por usuario
+// ============================================
 export async function GET(request: NextRequest) {
   try {
-    let userId = '00000000-0000-0000-0000-000000000000';
-    
-    // Intentar obtener el usuario del token
-    const authHeader = request.headers.get('Authorization');
-    if (authHeader) {
-      try {
-        const token = authHeader.replace('Bearer ', '');
-        const { data: { user } } = await supabase.auth.getUser(token);
-        
-        if (user) {
-          userId = user.id;
-        }
-      } catch {
-        // Token inválido, seguir como anónimo
-      }
+    const searchParams = request.nextUrl.searchParams;
+    const userId = searchParams.get('userId');
+
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'User ID is required in the query' },
+        { status: 401 }
+      );
     }
 
-    // Si es anónimo, ver todos los eventos (para pruebas)
-    // Si está autenticado, solo ver sus eventos
-    let query = supabase.from('calendar_events').select('*');
-    
-    if (userId !== '00000000-0000-0000-0000-000000000000') {
-      query = query.eq('user_id', userId);
-    }
-    
-    const { data, error } = await query.order('event_date', { ascending: true });
+    console.log('📝 Listando eventos para userId:', userId);
+
+    const { data, error } = await supabase
+      .from('calendar_events')
+      .select('*')
+      .eq('user_id', userId)
+      .order('event_date', { ascending: true });
 
     if (error) {
       return NextResponse.json(
@@ -116,7 +99,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       events: data,
-      auth_mode: userId === '00000000-0000-0000-0000-000000000000' ? 'anonymous' : 'authenticated',
       user_id: userId
     });
   } catch (error) {

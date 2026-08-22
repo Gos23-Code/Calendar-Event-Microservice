@@ -14,7 +14,7 @@ type UpdateData = {
 };
 
 // ============================================
-// PUT: Actualizar un evento existente
+// PUT: Actualizar evento
 // ============================================
 export async function PUT(
   request: NextRequest,
@@ -24,7 +24,6 @@ export async function PUT(
     const { id } = await params;
     const body = await request.json();
 
-    // Validar que el ID esté presente
     if (!id) {
       return NextResponse.json(
         { error: 'Event ID is required' },
@@ -32,29 +31,10 @@ export async function PUT(
       );
     }
 
-    // Verificar autenticación
-    let userId = '00000000-0000-0000-0000-000000000000';
-    let isAuthenticated = false;
-    
-    const authHeader = request.headers.get('Authorization');
-    if (authHeader) {
-      try {
-        const token = authHeader.replace('Bearer ', '');
-        const { data: { user } } = await supabase.auth.getUser(token);
-        
-        if (user) {
-          userId = user.id;
-          isAuthenticated = true;
-        }
-      } catch {
-        console.log('⚠️ Token inválido o expirado');
-      }
-    }
-
-    // Si no está autenticado, no puede actualizar
-    if (!isAuthenticated) {
+    // Validar que userId esté presente
+    if (!body.userId) {
       return NextResponse.json(
-        { error: 'Unauthorized. You must be logged in to update an event' },
+        { error: 'User ID is required in the body' },
         { status: 401 }
       );
     }
@@ -73,23 +53,22 @@ export async function PUT(
       );
     }
 
-    // Verificar que el evento pertenece al usuario autenticado
-    if (existingEvent.user_id !== userId) {
+    if (existingEvent.user_id !== body.userId) {
       return NextResponse.json(
         { error: 'Unauthorized to update this event' },
         { status: 403 }
       );
     }
 
-    // Validar eventType si viene en el body
+    // Validar eventType
     if (body.eventType && !Object.values(EventType).includes(body.eventType)) {
       return NextResponse.json(
-        { error: 'Invalid event type. Must be: VET_APPOINTMENT, MEDICATION, TREATMENT, GROOMING, or OTHER' },
+        { error: 'Invalid event type' },
         { status: 400 }
       );
     }
 
-    // Construir objeto de actualización (solo campos enviados)
+    // Construir objeto de actualización (TIPADO)
     const updateData: UpdateData = {};
     if (body.petId !== undefined) updateData.pet_id = body.petId;
     if (body.title !== undefined) updateData.title = body.title;
@@ -99,7 +78,6 @@ export async function PUT(
     if (body.reminderAt !== undefined) updateData.reminder_at = body.reminderAt;
     if (body.reminderEnabled !== undefined) updateData.reminder_enabled = body.reminderEnabled;
 
-    // Si no hay campos para actualizar
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json(
         { error: 'No fields to update' },
@@ -107,7 +85,6 @@ export async function PUT(
       );
     }
 
-    // Actualizar el evento
     const { data, error } = await supabase
       .from('calendar_events')
       .update(updateData)
@@ -122,10 +99,7 @@ export async function PUT(
       );
     }
 
-    return NextResponse.json({
-      ...data,
-      auth_mode: 'authenticated'
-    });
+    return NextResponse.json(data);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return NextResponse.json(
@@ -136,7 +110,7 @@ export async function PUT(
 }
 
 // ============================================
-// DELETE: Eliminar un evento
+// DELETE: Eliminar evento
 // ============================================
 export async function DELETE(
   request: NextRequest,
@@ -144,9 +118,8 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    // 👈 ELIMINADO: const body = await request.json();
+    const { searchParams } = request.nextUrl;
 
-    // Validar que el ID esté presente
     if (!id) {
       return NextResponse.json(
         { error: 'Event ID is required' },
@@ -154,29 +127,11 @@ export async function DELETE(
       );
     }
 
-    // Verificar autenticación
-    let userId = '00000000-0000-0000-0000-000000000000';
-    let isAuthenticated = false;
-    
-    const authHeader = request.headers.get('Authorization');
-    if (authHeader) {
-      try {
-        const token = authHeader.replace('Bearer ', '');
-        const { data: { user } } = await supabase.auth.getUser(token);
-        
-        if (user) {
-          userId = user.id;
-          isAuthenticated = true;
-        }
-      } catch {
-        console.log('⚠️ Token inválido o expirado');
-      }
-    }
+    const userId = searchParams.get('userId');
 
-    // Si no está autenticado, no puede eliminar
-    if (!isAuthenticated) {
+    if (!userId) {
       return NextResponse.json(
-        { error: 'Unauthorized. You must be logged in to delete an event' },
+        { error: 'User ID is required in the query' },
         { status: 401 }
       );
     }
@@ -195,7 +150,6 @@ export async function DELETE(
       );
     }
 
-    // Verificar que el evento pertenece al usuario autenticado
     if (existingEvent.user_id !== userId) {
       return NextResponse.json(
         { error: 'Unauthorized to delete this event' },
@@ -203,7 +157,6 @@ export async function DELETE(
       );
     }
 
-    // Eliminar el evento
     const { error } = await supabase
       .from('calendar_events')
       .delete()
@@ -219,127 +172,7 @@ export async function DELETE(
     return NextResponse.json({
       success: true,
       message: 'Event deleted successfully',
-      id: id,
-      auth_mode: 'authenticated'
-    });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json(
-      { error: errorMessage },
-      { status: 500 }
-    );
-  }
-}
-
-// ============================================
-// PATCH: Actualizar parcialmente un evento
-// ============================================
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
-    const body = await request.json();
-
-    // Validar que el ID esté presente
-    if (!id) {
-      return NextResponse.json(
-        { error: 'Event ID is required' },
-        { status: 400 }
-      );
-    }
-
-    // Verificar autenticación
-    let userId = '00000000-0000-0000-0000-000000000000';
-    let isAuthenticated = false;
-    
-    const authHeader = request.headers.get('Authorization');
-    if (authHeader) {
-      try {
-        const token = authHeader.replace('Bearer ', '');
-        const { data: { user } } = await supabase.auth.getUser(token);
-        
-        if (user) {
-          userId = user.id;
-          isAuthenticated = true;
-        }
-      } catch {
-        console.log('⚠️ Token inválido o expirado');
-      }
-    }
-
-    if (!isAuthenticated) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    // Verificar que el evento existe y pertenece al usuario
-    const { data: existingEvent, error: findError } = await supabase
-      .from('calendar_events')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (findError || !existingEvent) {
-      return NextResponse.json(
-        { error: 'Event not found' },
-        { status: 404 }
-      );
-    }
-
-    if (existingEvent.user_id !== userId) {
-      return NextResponse.json(
-        { error: 'Unauthorized to update this event' },
-        { status: 403 }
-      );
-    }
-
-    // Validar eventType si viene en el body
-    if (body.eventType && !Object.values(EventType).includes(body.eventType)) {
-      return NextResponse.json(
-        { error: 'Invalid event type' },
-        { status: 400 }
-      );
-    }
-
-    // Construir objeto de actualización (solo campos enviados)
-    const updateData: UpdateData = {};
-    if (body.petId !== undefined) updateData.pet_id = body.petId;
-    if (body.title !== undefined) updateData.title = body.title;
-    if (body.description !== undefined) updateData.description = body.description;
-    if (body.eventType !== undefined) updateData.event_type = body.eventType;
-    if (body.eventDate !== undefined) updateData.event_date = body.eventDate;
-    if (body.reminderAt !== undefined) updateData.reminder_at = body.reminderAt;
-    if (body.reminderEnabled !== undefined) updateData.reminder_enabled = body.reminderEnabled;
-
-    if (Object.keys(updateData).length === 0) {
-      return NextResponse.json(
-        { error: 'No fields to update' },
-        { status: 400 }
-      );
-    }
-
-    // Actualizar el evento
-    const { data, error } = await supabase
-      .from('calendar_events')
-      .update(updateData)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) {
-      return NextResponse.json(
-        { error: 'Error updating event: ' + error.message },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({
-      ...data,
-      auth_mode: 'authenticated'
+      id: id
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
