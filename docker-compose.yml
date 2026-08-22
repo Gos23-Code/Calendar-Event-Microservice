@@ -1,0 +1,22 @@
+services:
+  calendar-microservice:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+    image: calendar-microservice:latest
+    container_name: calendar-app
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+    networks:
+      - microservicios-net
+
+networks:
+  microservicios-net:
+    external: true
