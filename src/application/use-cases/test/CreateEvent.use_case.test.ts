@@ -43,7 +43,7 @@ describe('CreateEventUseCase', () => {
     it('should create an event successfully', async () => {
       const expectedEvent = CalendarEvent.create({
         userId: validData.userId,
-        petId: validData.petId,
+        petId: validData.petId || null,
         title: validData.title,
         description: validData.description || null,
         eventType: validData.eventType,
@@ -81,14 +81,28 @@ describe('CreateEventUseCase', () => {
       expect(mockRepository.create).not.toHaveBeenCalled();
     });
 
-    it('should throw error if petId is missing', async () => {
-      const invalidData: CreateEventDTO = { 
-        ...validData, 
-        petId: '' 
+    it('should create a user-only event (no petId) for the "calendario A" case', async () => {
+      const dataWithoutPet: CreateEventDTO = {
+        ...validData,
+        petId: undefined,
       };
 
-      await expect(useCase.execute(invalidData)).rejects.toThrow('Pet ID is required');
-      expect(mockRepository.create).not.toHaveBeenCalled();
+      const expectedEvent = CalendarEvent.create({
+        userId: dataWithoutPet.userId,
+        petId: null,
+        title: dataWithoutPet.title,
+        description: dataWithoutPet.description || null,
+        eventType: dataWithoutPet.eventType,
+        eventDate: dataWithoutPet.eventDate,
+        reminderAt: dataWithoutPet.reminderAt || null,
+        reminderEnabled: dataWithoutPet.reminderEnabled,
+      });
+      mockRepository.create.mockResolvedValue(expectedEvent);
+
+      const result = await useCase.execute(dataWithoutPet);
+
+      expect(mockRepository.create).toHaveBeenCalledTimes(1);
+      expect(result.petId).toBeNull();
     });
 
     it('should throw error if event date is missing', async () => {
@@ -141,7 +155,7 @@ describe('CreateEventUseCase', () => {
       
       const expectedEvent = CalendarEvent.create({
         userId: dataWithoutReminder.userId,
-        petId: dataWithoutReminder.petId,
+        petId: dataWithoutReminder.petId || null,
         title: dataWithoutReminder.title,
         description: dataWithoutReminder.description || null,
         eventType: dataWithoutReminder.eventType,
@@ -166,7 +180,7 @@ describe('CreateEventUseCase', () => {
       
       const expectedEvent = CalendarEvent.create({
         userId: dataWithoutDescription.userId,
-        petId: dataWithoutDescription.petId,
+        petId: dataWithoutDescription.petId || null,
         title: dataWithoutDescription.title,
         description: null,
         eventType: dataWithoutDescription.eventType,
@@ -196,7 +210,7 @@ describe('CreateEventUseCase', () => {
         const data: CreateEventDTO = { ...validData, eventType: type };
         const expectedEvent = CalendarEvent.create({
           userId: data.userId,
-          petId: data.petId,
+          petId: data.petId || null,
           title: data.title,
           description: data.description || null,
           eventType: data.eventType,

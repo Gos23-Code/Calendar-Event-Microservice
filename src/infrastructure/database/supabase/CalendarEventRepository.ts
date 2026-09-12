@@ -8,7 +8,7 @@ import { supabase } from './client';
 interface SupabaseEventResponse {
   id: string;
   user_id: string;
-  pet_id: string;
+  pet_id: string | null;
   title: string;
   description: string | null;
   event_type: EventType;
@@ -90,7 +90,13 @@ export class CalendarEventRepository implements ICalendarEventRepository {
     if (filters?.petId) {
       query = query.eq('pet_id', filters.petId);
     }
-    
+
+    if (filters?.withPet === true) {
+      query = query.not('pet_id', 'is', null);
+    } else if (filters?.withPet === false) {
+      query = query.is('pet_id', null);
+    }
+
     if (filters?.eventType) {
       query = query.eq('event_type', filters.eventType);
     }

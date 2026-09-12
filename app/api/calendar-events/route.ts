@@ -9,10 +9,11 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     
-    // Validar campos requeridos
-    if (!body.petId || !body.title || !body.eventType || !body.eventDate) {
+    // Validar campos requeridos (petId es opcional: su ausencia indica un evento
+    // de calendario de usuario en vez de un evento asociado a una mascota)
+    if (!body.title || !body.eventType || !body.eventDate) {
       return NextResponse.json(
-        { error: 'Missing required fields: petId, title, eventType, eventDate' },
+        { error: 'Missing required fields: title, eventType, eventDate' },
         { status: 400 }
       );
     }
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
       .from('calendar_events')
       .insert({
         user_id: body.userId,
-        pet_id: body.petId,
+        pet_id: body.petId || null,
         title: body.title,
         description: body.description || null,
         event_type: body.eventType,
@@ -74,21 +75,39 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const userId = searchParams.get('userId');
+    // calendarType: 'user' -> solo eventos sin mascota (calendario A)
+    //               'pet'  -> solo eventos con mascota (calendario B)
+    //               ausente -> todos los eventos del usuario
+    const calendarType = searchParams.get('calendarType');
+    const petId = searchParams.get('petId');
 
-    if (!userId) {
+    // Se admite userId, petId, o ambos — pero al menos uno debe estar presente
+    if (!userId && !petId) {
       return NextResponse.json(
-        { error: 'User ID is required in the query' },
+        { error: 'User ID or Pet ID is required in the query' },
         { status: 401 }
       );
     }
 
-    console.log('📝 Listando eventos para userId:', userId);
+    console.log('📝 Listando eventos para userId:', userId, 'petId:', petId);
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('calendar_events')
-      .select('*')
-      .eq('user_id', userId)
-      .order('event_date', { ascending: true });
+      .select('*');
+
+    if (userId) {
+      query = query.eq('user_id', userId);
+    }
+
+    if (petId) {
+      query = query.eq('pet_id', petId);
+    } else if (calendarType === 'user') {
+      query = query.is('pet_id', null);
+    } else if (calendarType === 'pet') {
+      query = query.not('pet_id', 'is', null);
+    }
+
+    const { data, error } = await query.order('event_date', { ascending: true });
 
     if (error) {
       return NextResponse.json(
@@ -99,7 +118,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       events: data,
-      user_id: userId
+      user_id: userId,
+      pet_id: petId
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';

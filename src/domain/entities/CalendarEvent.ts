@@ -4,7 +4,7 @@ export class CalendarEvent {
   constructor(
     public readonly id: string,
     public userId: string,
-    public petId: string,
+    public petId: string | null,
     public title: string,
     public description: string | null,
     public eventType: EventType,
@@ -18,7 +18,7 @@ export class CalendarEvent {
   // Define el tipo para el método create
   static create(props: {
     userId: string;
-    petId: string;
+    petId: string | null;
     title: string;
     description: string | null;
     eventType: EventType;

@@ -4,7 +4,7 @@ import { EventType } from '../../enums/EventType';
 // Definir el tipo para los props de creación - DEBE COINCIDIR CON CalendarEvent.create
 type CreateEventProps = {
   userId: string;
-  petId: string;
+  petId: string | null;
   title: string;
   description: string | null;  
   eventType: EventType;
@@ -55,6 +55,14 @@ describe('CalendarEvent Entity', () => {
         reminderAt: null, // 👈 Explicitamente null
       });
       expect(event.reminderAt).toBeNull();
+    });
+
+    it('should create a user-only event when petId is null (calendario A)', () => {
+      const event = CalendarEvent.create({
+        ...mockProps,
+        petId: null,
+      });
+      expect(event.petId).toBeNull();
     });
   });
 

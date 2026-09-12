@@ -2,7 +2,7 @@ import { EventType } from '@/domain/enums/EventType';
 
 export interface CreateEventDTO {
   userId: string;
-  petId: string;
+  petId?: string | null;
   title: string;
   description?: string;
   eventType: EventType;
@@ -22,6 +22,8 @@ export interface UpdateEventDTO {
 
 export interface EventFiltersDTO {
   petId?: string;
+  /** true = only events linked to a pet ("calendario B"), false = only user-only events ("calendario A") */
+  withPet?: boolean;
   startDate?: Date;
   endDate?: Date;
   eventType?: EventType;

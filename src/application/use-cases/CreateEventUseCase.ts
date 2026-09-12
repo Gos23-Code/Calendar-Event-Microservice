@@ -11,7 +11,7 @@ export class CreateEventUseCase {
 
     const event = CalendarEvent.create({
       userId: data.userId,
-      petId: data.petId,
+      petId: data.petId || null,
       title: data.title,
       description: data.description || null,
       eventType: data.eventType,
@@ -29,9 +29,6 @@ export class CreateEventUseCase {
     }
     if (data.title.length > 255) {
       throw new Error('Title must be less than 255 characters');
-    }
-    if (!data.petId) {
-      throw new Error('Pet ID is required');
     }
     if (!data.eventDate) {
       throw new Error('Event date is required');
