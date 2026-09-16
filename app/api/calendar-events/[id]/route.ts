@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/infrastructure/database/supabase/client';
 import { EventType } from '@/domain/enums/EventType';
+import { mapSupabaseRowToCalendarEvent } from '@/infrastructure/database/supabase/mappers';
+import { CalendarPubSubService } from '@/application/services/CalendarPubSubService';
+
+const pubSubService = new CalendarPubSubService();
 
 // Definir el tipo para los datos de actualización
 type UpdateData = {
@@ -8,9 +12,12 @@ type UpdateData = {
   title?: string;
   description?: string | null;
   event_type?: EventType;
-  event_date?: string;
+  start_date?: string;
+  end_date?: string;
+  location?: string | null;
   reminder_at?: string | null;
   reminder_enabled?: boolean;
+  reminder_sent?: boolean;
 };
 
 // ============================================
@@ -68,15 +75,31 @@ export async function PUT(
       );
     }
 
+    // Si se actualiza solo una de las dos fechas, validar contra la otra (la nueva o la existente)
+    const effectiveStartDate = body.startDate ?? existingEvent.start_date;
+    const effectiveEndDate = body.endDate ?? existingEvent.end_date;
+    if ((body.startDate !== undefined || body.endDate !== undefined) && new Date(effectiveEndDate) < new Date(effectiveStartDate)) {
+      return NextResponse.json(
+        { error: 'End date cannot be before start date' },
+        { status: 400 }
+      );
+    }
+
     // Construir objeto de actualización (TIPADO)
     const updateData: UpdateData = {};
     if (body.petId !== undefined) updateData.pet_id = body.petId;
     if (body.title !== undefined) updateData.title = body.title;
     if (body.description !== undefined) updateData.description = body.description;
     if (body.eventType !== undefined) updateData.event_type = body.eventType;
-    if (body.eventDate !== undefined) updateData.event_date = body.eventDate;
+    if (body.startDate !== undefined) updateData.start_date = body.startDate;
+    if (body.endDate !== undefined) updateData.end_date = body.endDate;
+    if (body.location !== undefined) updateData.location = body.location;
     if (body.reminderAt !== undefined) updateData.reminder_at = body.reminderAt;
     if (body.reminderEnabled !== undefined) updateData.reminder_enabled = body.reminderEnabled;
+    // Si se reprograma o reactiva el recordatorio, permitir que el cron vuelva a notificarlo
+    if (body.reminderAt !== undefined || body.reminderEnabled !== undefined) {
+      updateData.reminder_sent = false;
+    }
 
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json(
@@ -97,6 +120,12 @@ export async function PUT(
         { error: 'Error updating event: ' + error.message },
         { status: 500 }
       );
+    }
+
+    try {
+      await pubSubService.publishEventUpdated(mapSupabaseRowToCalendarEvent(data));
+    } catch (pubSubError) {
+      console.error('❌ Failed to publish calendar event updated message:', pubSubError);
     }
 
     return NextResponse.json(data);

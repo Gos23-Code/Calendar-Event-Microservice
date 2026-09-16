@@ -28,7 +28,9 @@ describe('ListEventsUseCase', () => {
       title: 'Evento 1',
       description: 'Descripción 1',
       eventType: EventType.VET_APPOINTMENT,
-      eventDate: new Date('2026-07-15T10:00:00Z'),
+      startDate: new Date('2026-07-15T10:00:00Z'),
+      endDate: new Date('2026-07-15T11:00:00Z'),
+      location: 'Clínica Veterinaria Central',
       reminderAt: new Date('2026-07-14T10:00:00Z'),
       reminderEnabled: true,
     }),
@@ -38,7 +40,9 @@ describe('ListEventsUseCase', () => {
       title: 'Evento 2',
       description: 'Descripción 2',
       eventType: EventType.MEDICATION,
-      eventDate: new Date('2026-07-16T10:00:00Z'),
+      startDate: new Date('2026-07-16T10:00:00Z'),
+      endDate: new Date('2026-07-16T11:00:00Z'),
+      location: null,
       reminderAt: null,
       reminderEnabled: false,
     }),
@@ -59,8 +63,8 @@ describe('ListEventsUseCase', () => {
       const filters: EventFiltersDTO = {
         petId: 'pet-456',
         eventType: EventType.VET_APPOINTMENT,
-        startDate: new Date('2026-07-01'),
-        endDate: new Date('2026-07-31'),
+        fromDate: new Date('2026-07-01'),
+        toDate: new Date('2026-07-31'),
       };
 
       mockRepository.findByUserAndFilters.mockResolvedValue([mockEvents[0]]);

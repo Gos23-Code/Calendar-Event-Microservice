@@ -111,7 +111,3 @@ supabase/.branches/
 *.p10
 *.p12
 *.stl
-
-# Archivos de Claude/AGENTS (si los usas)
-AGENTS.md
-CLAUDE.md

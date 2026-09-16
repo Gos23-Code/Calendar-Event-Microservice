@@ -27,7 +27,9 @@ describe('DeleteEventUseCase', () => {
     title: 'Cita veterinaria',
     description: 'Revisión de Milo',
     eventType: EventType.VET_APPOINTMENT,
-    eventDate: new Date('2026-07-15T10:00:00Z'),
+    startDate: new Date('2026-07-15T10:00:00Z'),
+    endDate: new Date('2026-07-15T11:00:00Z'),
+    location: 'Clínica Veterinaria Central',
     reminderAt: new Date('2026-07-14T10:00:00Z'),
     reminderEnabled: true,
   });
@@ -109,7 +111,9 @@ describe('DeleteEventUseCase', () => {
         title: 'Otro evento',
         description: 'Descripción de otro evento',
         eventType: EventType.MEDICATION,
-        eventDate: new Date('2026-07-20T10:00:00Z'),
+        startDate: new Date('2026-07-20T10:00:00Z'),
+        endDate: new Date('2026-07-20T11:00:00Z'),
+        location: null,
         reminderAt: new Date('2026-07-19T10:00:00Z'),
         reminderEnabled: false,
       });

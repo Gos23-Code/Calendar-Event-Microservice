@@ -6,10 +6,12 @@ type CreateEventProps = {
   userId: string;
   petId: string | null;
   title: string;
-  description: string | null;  
+  description: string | null;
   eventType: EventType;
-  eventDate: Date;
-  reminderAt: Date | null;     
+  startDate: Date;
+  endDate: Date;
+  location: string | null;
+  reminderAt: Date | null;
   reminderEnabled: boolean;
 };
 
@@ -20,7 +22,9 @@ describe('CalendarEvent Entity', () => {
     title: 'Cita veterinaria',
     description: 'Revisión de Milo',  // 👈 string, no undefined
     eventType: EventType.VET_APPOINTMENT,
-    eventDate: new Date('2026-07-15T10:00:00Z'),
+    startDate: new Date('2026-07-15T10:00:00Z'),
+    endDate: new Date('2026-07-15T11:00:00Z'),
+    location: 'Clínica Veterinaria Central',
     reminderAt: new Date('2026-07-14T10:00:00Z'), // 👈 Date, no undefined
     reminderEnabled: true,
   };
@@ -36,7 +40,9 @@ describe('CalendarEvent Entity', () => {
       expect(event.title).toBe(mockProps.title);
       expect(event.description).toBe(mockProps.description);
       expect(event.eventType).toBe(mockProps.eventType);
-      expect(event.eventDate).toBe(mockProps.eventDate);
+      expect(event.startDate).toBe(mockProps.startDate);
+      expect(event.endDate).toBe(mockProps.endDate);
+      expect(event.location).toBe(mockProps.location);
       expect(event.reminderAt).toBe(mockProps.reminderAt);
       expect(event.reminderEnabled).toBe(mockProps.reminderEnabled);
     });
@@ -64,6 +70,14 @@ describe('CalendarEvent Entity', () => {
       });
       expect(event.petId).toBeNull();
     });
+
+    it('should set location to null if not provided', () => {
+      const event = CalendarEvent.create({
+        ...mockProps,
+        location: null,
+      });
+      expect(event.location).toBeNull();
+    });
   });
 
   describe('update', () => {
@@ -72,7 +86,9 @@ describe('CalendarEvent Entity', () => {
       const updateData = {
         title: 'Nuevo título',
         description: 'Nueva descripción',
-        eventDate: new Date('2026-07-20T10:00:00Z'),
+        startDate: new Date('2026-07-20T10:00:00Z'),
+        endDate: new Date('2026-07-20T11:00:00Z'),
+        location: 'Nueva ubicación',
         reminderEnabled: false,
       };
 
@@ -80,7 +96,9 @@ describe('CalendarEvent Entity', () => {
 
       expect(event.title).toBe(updateData.title);
       expect(event.description).toBe(updateData.description);
-      expect(event.eventDate).toBe(updateData.eventDate);
+      expect(event.startDate).toBe(updateData.startDate);
+      expect(event.endDate).toBe(updateData.endDate);
+      expect(event.location).toBe(updateData.location);
       expect(event.reminderEnabled).toBe(updateData.reminderEnabled);
       expect(event.updatedAt).toBeDefined();
     });
@@ -88,7 +106,7 @@ describe('CalendarEvent Entity', () => {
     it('should not update undefined fields', () => {
       const event = CalendarEvent.create(mockProps);
       const originalTitle = event.title;
-      
+
       event.update({ description: 'Nueva descripción' });
 
       expect(event.title).toBe(originalTitle);
@@ -97,30 +115,34 @@ describe('CalendarEvent Entity', () => {
 
     it('should update only provided fields', () => {
       const event = CalendarEvent.create(mockProps);
-      const originalEventDate = event.eventDate;
+      const originalStartDate = event.startDate;
+      const originalEndDate = event.endDate;
       const originalReminderEnabled = event.reminderEnabled;
-      
-      event.update({ 
+
+      event.update({
         title: 'Título actualizado',
         description: 'Descripción actualizada'
       });
 
       expect(event.title).toBe('Título actualizado');
       expect(event.description).toBe('Descripción actualizada');
-      expect(event.eventDate).toBe(originalEventDate);
+      expect(event.startDate).toBe(originalStartDate);
+      expect(event.endDate).toBe(originalEndDate);
       expect(event.reminderEnabled).toBe(originalReminderEnabled);
       expect(event.updatedAt).toBeDefined();
     });
 
     it('should handle update with null values', () => {
       const event = CalendarEvent.create(mockProps);
-      
-      event.update({ 
+
+      event.update({
         description: null,
+        location: null,
         reminderAt: null
       });
 
       expect(event.description).toBeNull();
+      expect(event.location).toBeNull();
       expect(event.reminderAt).toBeNull();
     });
   });

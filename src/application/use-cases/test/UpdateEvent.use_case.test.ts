@@ -26,7 +26,9 @@ describe('UpdateEventUseCase', () => {
     title: 'Cita original',
     description: 'Descripción original',
     eventType: EventType.VET_APPOINTMENT,
-    eventDate: new Date('2026-07-15T10:00:00Z'),
+    startDate: new Date('2026-07-15T10:00:00Z'),
+    endDate: new Date('2026-07-15T11:00:00Z'),
+    location: 'Clínica Veterinaria Central',
     reminderAt: new Date('2026-07-14T10:00:00Z'),
     reminderEnabled: true,
   });

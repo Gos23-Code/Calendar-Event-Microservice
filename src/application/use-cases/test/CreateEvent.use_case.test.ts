@@ -34,7 +34,9 @@ describe('CreateEventUseCase', () => {
     title: 'Cita veterinaria',
     description: 'Revisión de Milo',
     eventType: EventType.VET_APPOINTMENT,
-    eventDate: new Date('2026-07-15T10:00:00Z'),
+    startDate: new Date('2026-07-15T10:00:00Z'),
+    endDate: new Date('2026-07-15T11:00:00Z'),
+    location: 'Clínica Veterinaria Central',
     reminderAt: new Date('2026-07-14T10:00:00Z'),
     reminderEnabled: true,
   };
@@ -47,7 +49,9 @@ describe('CreateEventUseCase', () => {
         title: validData.title,
         description: validData.description || null,
         eventType: validData.eventType,
-        eventDate: validData.eventDate,
+        startDate: validData.startDate,
+        endDate: validData.endDate,
+        location: validData.location || null,
         reminderAt: validData.reminderAt || null,
         reminderEnabled: validData.reminderEnabled,
       });
@@ -62,9 +66,9 @@ describe('CreateEventUseCase', () => {
     });
 
     it('should throw error if title is empty', async () => {
-      const invalidData: CreateEventDTO = { 
-        ...validData, 
-        title: '' 
+      const invalidData: CreateEventDTO = {
+        ...validData,
+        title: ''
       };
 
       await expect(useCase.execute(invalidData)).rejects.toThrow('Title is required');
@@ -72,9 +76,9 @@ describe('CreateEventUseCase', () => {
     });
 
     it('should throw error if title exceeds 255 characters', async () => {
-      const invalidData: CreateEventDTO = { 
-        ...validData, 
-        title: 'a'.repeat(256) 
+      const invalidData: CreateEventDTO = {
+        ...validData,
+        title: 'a'.repeat(256)
       };
 
       await expect(useCase.execute(invalidData)).rejects.toThrow('Title must be less than 255 characters');
@@ -93,7 +97,9 @@ describe('CreateEventUseCase', () => {
         title: dataWithoutPet.title,
         description: dataWithoutPet.description || null,
         eventType: dataWithoutPet.eventType,
-        eventDate: dataWithoutPet.eventDate,
+        startDate: dataWithoutPet.startDate,
+        endDate: dataWithoutPet.endDate,
+        location: dataWithoutPet.location || null,
         reminderAt: dataWithoutPet.reminderAt || null,
         reminderEnabled: dataWithoutPet.reminderEnabled,
       });
@@ -105,61 +111,84 @@ describe('CreateEventUseCase', () => {
       expect(result.petId).toBeNull();
     });
 
-    it('should throw error if event date is missing', async () => {
-      const invalidData = { 
-        ...validData, 
-        eventDate: undefined as unknown as Date
+    it('should throw error if start date is missing', async () => {
+      const invalidData = {
+        ...validData,
+        startDate: undefined as unknown as Date
       };
 
-      await expect(useCase.execute(invalidData as CreateEventDTO)).rejects.toThrow('Event date is required');
+      await expect(useCase.execute(invalidData as CreateEventDTO)).rejects.toThrow('Start date is required');
       expect(mockRepository.create).not.toHaveBeenCalled();
     });
 
-    it('should throw error if event date is in the past', async () => {
-      const invalidData: CreateEventDTO = { 
-        ...validData, 
-        eventDate: new Date('2023-01-01T10:00:00Z')
+    it('should throw error if start date is in the past', async () => {
+      const invalidData: CreateEventDTO = {
+        ...validData,
+        startDate: new Date('2023-01-01T10:00:00Z')
       };
 
-      await expect(useCase.execute(invalidData)).rejects.toThrow('Event date cannot be in the past');
+      await expect(useCase.execute(invalidData)).rejects.toThrow('Start date cannot be in the past');
+      expect(mockRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('should throw error if end date is missing', async () => {
+      const invalidData = {
+        ...validData,
+        endDate: undefined as unknown as Date
+      };
+
+      await expect(useCase.execute(invalidData as CreateEventDTO)).rejects.toThrow('End date is required');
+      expect(mockRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('should throw error if end date is before start date', async () => {
+      const invalidData: CreateEventDTO = {
+        ...validData,
+        startDate: new Date('2026-07-15T10:00:00Z'),
+        endDate: new Date('2026-07-15T09:00:00Z'),
+      };
+
+      await expect(useCase.execute(invalidData)).rejects.toThrow('End date cannot be before start date');
       expect(mockRepository.create).not.toHaveBeenCalled();
     });
 
     it('should throw error if event type is invalid', async () => {
-      const invalidData = { 
-        ...validData, 
+      const invalidData = {
+        ...validData,
         eventType: 'INVALID' as EventType,
-        eventDate: new Date('2026-07-15T10:00:00Z')
+        startDate: new Date('2026-07-15T10:00:00Z')
       };
 
       await expect(useCase.execute(invalidData)).rejects.toThrow('Invalid event type');
       expect(mockRepository.create).not.toHaveBeenCalled();
     });
 
-    it('should throw error if event type is invalid even with past date', async () => {
-      const invalidData = { 
-        ...validData, 
+    it('should throw error if event type is invalid even with past start date', async () => {
+      const invalidData = {
+        ...validData,
         eventType: 'INVALID' as EventType,
-        eventDate: new Date('2023-01-01T10:00:00Z')
+        startDate: new Date('2023-01-01T10:00:00Z')
       };
 
-      await expect(useCase.execute(invalidData)).rejects.toThrow('Event date cannot be in the past');
+      await expect(useCase.execute(invalidData)).rejects.toThrow('Start date cannot be in the past');
       expect(mockRepository.create).not.toHaveBeenCalled();
     });
 
     it('should handle reminderAt as optional', async () => {
-      const dataWithoutReminder: CreateEventDTO = { 
-        ...validData, 
-        reminderAt: undefined 
+      const dataWithoutReminder: CreateEventDTO = {
+        ...validData,
+        reminderAt: undefined
       };
-      
+
       const expectedEvent = CalendarEvent.create({
         userId: dataWithoutReminder.userId,
         petId: dataWithoutReminder.petId || null,
         title: dataWithoutReminder.title,
         description: dataWithoutReminder.description || null,
         eventType: dataWithoutReminder.eventType,
-        eventDate: dataWithoutReminder.eventDate,
+        startDate: dataWithoutReminder.startDate,
+        endDate: dataWithoutReminder.endDate,
+        location: dataWithoutReminder.location || null,
         reminderAt: null,
         reminderEnabled: dataWithoutReminder.reminderEnabled,
       });
@@ -173,18 +202,20 @@ describe('CreateEventUseCase', () => {
     });
 
     it('should handle description as optional', async () => {
-      const dataWithoutDescription: CreateEventDTO = { 
-        ...validData, 
-        description: undefined 
+      const dataWithoutDescription: CreateEventDTO = {
+        ...validData,
+        description: undefined
       };
-      
+
       const expectedEvent = CalendarEvent.create({
         userId: dataWithoutDescription.userId,
         petId: dataWithoutDescription.petId || null,
         title: dataWithoutDescription.title,
         description: null,
         eventType: dataWithoutDescription.eventType,
-        eventDate: dataWithoutDescription.eventDate,
+        startDate: dataWithoutDescription.startDate,
+        endDate: dataWithoutDescription.endDate,
+        location: dataWithoutDescription.location || null,
         reminderAt: dataWithoutDescription.reminderAt || null,
         reminderEnabled: dataWithoutDescription.reminderEnabled,
       });
@@ -195,6 +226,33 @@ describe('CreateEventUseCase', () => {
       expect(mockRepository.create).toHaveBeenCalledTimes(1);
       expect(result).toBeInstanceOf(CalendarEvent);
       expect(result.description).toBeNull();
+    });
+
+    it('should handle location as optional', async () => {
+      const dataWithoutLocation: CreateEventDTO = {
+        ...validData,
+        location: undefined
+      };
+
+      const expectedEvent = CalendarEvent.create({
+        userId: dataWithoutLocation.userId,
+        petId: dataWithoutLocation.petId || null,
+        title: dataWithoutLocation.title,
+        description: dataWithoutLocation.description || null,
+        eventType: dataWithoutLocation.eventType,
+        startDate: dataWithoutLocation.startDate,
+        endDate: dataWithoutLocation.endDate,
+        location: null,
+        reminderAt: dataWithoutLocation.reminderAt || null,
+        reminderEnabled: dataWithoutLocation.reminderEnabled,
+      });
+      mockRepository.create.mockResolvedValue(expectedEvent);
+
+      const result = await useCase.execute(dataWithoutLocation);
+
+      expect(mockRepository.create).toHaveBeenCalledTimes(1);
+      expect(result).toBeInstanceOf(CalendarEvent);
+      expect(result.location).toBeNull();
     });
 
     it('should handle all valid event types', async () => {
@@ -214,7 +272,9 @@ describe('CreateEventUseCase', () => {
           title: data.title,
           description: data.description || null,
           eventType: data.eventType,
-          eventDate: data.eventDate,
+          startDate: data.startDate,
+          endDate: data.endDate,
+          location: data.location || null,
           reminderAt: data.reminderAt || null,
           reminderEnabled: data.reminderEnabled,
         });

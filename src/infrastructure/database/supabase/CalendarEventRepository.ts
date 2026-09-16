@@ -12,7 +12,9 @@ interface SupabaseEventResponse {
   title: string;
   description: string | null;
   event_type: EventType;
-  event_date: string;
+  start_date: string;
+  end_date: string;
+  location: string | null;
   reminder_at: string | null;
   reminder_enabled: boolean;
   created_at: string;
@@ -30,7 +32,9 @@ export class CalendarEventRepository implements ICalendarEventRepository {
         title: event.title,
         description: event.description,
         event_type: event.eventType,
-        event_date: event.eventDate.toISOString(),
+        start_date: event.startDate.toISOString(),
+        end_date: event.endDate.toISOString(),
+        location: event.location,
         reminder_at: event.reminderAt?.toISOString() || null,
         reminder_enabled: event.reminderEnabled
       })
@@ -38,7 +42,7 @@ export class CalendarEventRepository implements ICalendarEventRepository {
       .single();
 
     if (error) throw new Error(`Error creating event: ${error.message}`);
-    
+
     return this.mapToEntity(data);
   }
 
@@ -62,10 +66,10 @@ export class CalendarEventRepository implements ICalendarEventRepository {
       .from('calendar_events')
       .select('*')
       .eq('user_id', userId)
-      .order('event_date', { ascending: true });
+      .order('start_date', { ascending: true });
 
     if (error) throw new Error(`Error finding events: ${error.message}`);
-    
+
     return data.map(this.mapToEntity);
   }
 
@@ -74,10 +78,10 @@ export class CalendarEventRepository implements ICalendarEventRepository {
       .from('calendar_events')
       .select('*')
       .eq('pet_id', petId)
-      .order('event_date', { ascending: true });
+      .order('start_date', { ascending: true });
 
     if (error) throw new Error(`Error finding events: ${error.message}`);
-    
+
     return data.map(this.mapToEntity);
   }
 
@@ -100,25 +104,25 @@ export class CalendarEventRepository implements ICalendarEventRepository {
     if (filters?.eventType) {
       query = query.eq('event_type', filters.eventType);
     }
-    
-    if (filters?.startDate) {
-      query = query.gte('event_date', filters.startDate.toISOString());
+
+    if (filters?.fromDate) {
+      query = query.gte('start_date', filters.fromDate.toISOString());
     }
-    
-    if (filters?.endDate) {
-      query = query.lte('event_date', filters.endDate.toISOString());
+
+    if (filters?.toDate) {
+      query = query.lte('start_date', filters.toDate.toISOString());
     }
 
     if (filters?.searchTerm) {
       query = query.or(`title.ilike.%${filters.searchTerm}%,description.ilike.%${filters.searchTerm}%`);
     }
 
-    query = query.order('event_date', { ascending: true });
+    query = query.order('start_date', { ascending: true });
 
     const { data, error } = await query;
-    
+
     if (error) throw new Error(`Error finding events: ${error.message}`);
-    
+
     return data.map(this.mapToEntity);
   }
 
@@ -129,7 +133,9 @@ export class CalendarEventRepository implements ICalendarEventRepository {
         title: event.title,
         description: event.description,
         event_type: event.eventType,
-        event_date: event.eventDate.toISOString(),
+        start_date: event.startDate.toISOString(),
+        end_date: event.endDate.toISOString(),
+        location: event.location,
         reminder_at: event.reminderAt?.toISOString() || null,
         reminder_enabled: event.reminderEnabled
       })
@@ -138,7 +144,7 @@ export class CalendarEventRepository implements ICalendarEventRepository {
       .single();
 
     if (error) throw new Error(`Error updating event: ${error.message}`);
-    
+
     return this.mapToEntity(data);
   }
 
@@ -160,7 +166,9 @@ export class CalendarEventRepository implements ICalendarEventRepository {
       data.title,
       data.description,
       data.event_type,
-      new Date(data.event_date),
+      new Date(data.start_date),
+      new Date(data.end_date),
+      data.location,
       data.reminder_at ? new Date(data.reminder_at) : null,
       data.reminder_enabled,
       data.created_at ? new Date(data.created_at) : undefined,

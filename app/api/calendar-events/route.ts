@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/infrastructure/database/supabase/client';
 import { EventType } from '@/domain/enums/EventType';
+import { mapSupabaseRowToCalendarEvent } from '@/infrastructure/database/supabase/mappers';
+import { CalendarPubSubService } from '@/application/services/CalendarPubSubService';
+
+const pubSubService = new CalendarPubSubService();
 
 // ============================================
 // POST: Crear un nuevo evento
@@ -11,9 +15,16 @@ export async function POST(request: NextRequest) {
     
     // Validar campos requeridos (petId es opcional: su ausencia indica un evento
     // de calendario de usuario en vez de un evento asociado a una mascota)
-    if (!body.title || !body.eventType || !body.eventDate) {
+    if (!body.title || !body.eventType || !body.startDate || !body.endDate) {
       return NextResponse.json(
-        { error: 'Missing required fields: title, eventType, eventDate' },
+        { error: 'Missing required fields: title, eventType, startDate, endDate' },
+        { status: 400 }
+      );
+    }
+
+    if (new Date(body.endDate) < new Date(body.startDate)) {
+      return NextResponse.json(
+        { error: 'End date cannot be before start date' },
         { status: 400 }
       );
     }
@@ -44,7 +55,9 @@ export async function POST(request: NextRequest) {
         title: body.title,
         description: body.description || null,
         event_type: body.eventType,
-        event_date: body.eventDate,
+        start_date: body.startDate,
+        end_date: body.endDate,
+        location: body.location || null,
         reminder_at: body.reminderAt || null,
         reminder_enabled: body.reminderEnabled ?? false
       })
@@ -56,6 +69,12 @@ export async function POST(request: NextRequest) {
         { error: 'Error creating event: ' + error.message },
         { status: 500 }
       );
+    }
+
+    try {
+      await pubSubService.publishEventCreated(mapSupabaseRowToCalendarEvent(data));
+    } catch (pubSubError) {
+      console.error('❌ Failed to publish calendar event created message:', pubSubError);
     }
 
     return NextResponse.json(data, { status: 201 });
@@ -107,7 +126,7 @@ export async function GET(request: NextRequest) {
       query = query.not('pet_id', 'is', null);
     }
 
-    const { data, error } = await query.order('event_date', { ascending: true });
+    const { data, error } = await query.order('start_date', { ascending: true });
 
     if (error) {
       return NextResponse.json(

@@ -14,6 +14,13 @@ services:
     environment:
       NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT}
+      PUBSUB_CALENDAR_TOPIC: ${PUBSUB_CALENDAR_TOPIC:-calendar-event}
+      # Contenedor persistente (no escala a cero) => el cron en proceso es seguro aquí
+      ENABLE_INTERNAL_REMINDER_CRON: "true"
+      GOOGLE_APPLICATION_CREDENTIALS: /app/secrets/gcp-key.json
+    volumes:
+      - ${GCP_KEY_FILE_PATH}:/app/secrets/gcp-key.json:ro
     networks:
       - microservicios-net
 

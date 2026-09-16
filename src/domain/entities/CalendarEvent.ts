@@ -8,7 +8,9 @@ export class CalendarEvent {
     public title: string,
     public description: string | null,
     public eventType: EventType,
-    public eventDate: Date,
+    public startDate: Date,
+    public endDate: Date,
+    public location: string | null,
     public reminderAt: Date | null,
     public reminderEnabled: boolean,
     public readonly createdAt?: Date,
@@ -22,7 +24,9 @@ export class CalendarEvent {
     title: string;
     description: string | null;
     eventType: EventType;
-    eventDate: Date;
+    startDate: Date;
+    endDate: Date;
+    location: string | null;
     reminderAt: Date | null;
     reminderEnabled: boolean;
   }): CalendarEvent {
@@ -33,7 +37,9 @@ export class CalendarEvent {
       props.title,
       props.description,
       props.eventType,
-      props.eventDate,
+      props.startDate,
+      props.endDate,
+      props.location,
       props.reminderAt,
       props.reminderEnabled
     );
@@ -43,14 +49,18 @@ export class CalendarEvent {
     title: string;
     description: string | null;
     eventType: EventType;
-    eventDate: Date;
+    startDate: Date;
+    endDate: Date;
+    location: string | null;
     reminderAt: Date | null;
     reminderEnabled: boolean;
   }>): void {
     if (props.title !== undefined) this.title = props.title;
     if (props.description !== undefined) this.description = props.description;
     if (props.eventType !== undefined) this.eventType = props.eventType;
-    if (props.eventDate !== undefined) this.eventDate = props.eventDate;
+    if (props.startDate !== undefined) this.startDate = props.startDate;
+    if (props.endDate !== undefined) this.endDate = props.endDate;
+    if (props.location !== undefined) this.location = props.location;
     if (props.reminderAt !== undefined) this.reminderAt = props.reminderAt;
     if (props.reminderEnabled !== undefined) this.reminderEnabled = props.reminderEnabled;
     this.updatedAt = new Date();
