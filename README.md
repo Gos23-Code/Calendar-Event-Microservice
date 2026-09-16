@@ -80,7 +80,9 @@ flowchart TB
 | `title`           | `string`            | Título (máx. 255 caracteres)                                                |
 | `description`     | `string \| null`    | Descripción opcional                                                        |
 | `eventType`       | `EventType`         | Categoría del evento                                                        |
-| `eventDate`       | `Date`              | Fecha del evento (debe ser futura al crearlo)                              |
+| `startDate`       | `Date`              | Fecha/hora de inicio (debe ser futura al crearlo)                           |
+| `endDate`         | `Date`              | Fecha/hora de fin (no puede ser anterior a `startDate`)                    |
+| `location`        | `string \| null`    | Lugar del evento (opcional)                                                 |
 | `reminderAt`      | `Date \| null`      | Fecha/hora exacta elegida por el usuario para el recordatorio              |
 | `reminderEnabled` | `boolean`           | Si el recordatorio está activo                                              |
 | `createdAt`       | `Date`              | Timestamp de creación                                                       |
@@ -121,7 +123,9 @@ Crea un evento. Si se omite `petId`, el evento pertenece al calendario de usuari
   "title": "string",
   "description": "string (opcional)",
   "eventType": "VET_APPOINTMENT | MEDICATION | TREATMENT | GROOMING | OTHER",
-  "eventDate": "2026-07-15T10:00:00.000Z",
+  "startDate": "2026-07-15T10:00:00.000Z",
+  "endDate": "2026-07-15T11:00:00.000Z",
+  "location": "string (opcional)",
   "reminderAt": "2026-07-14T10:00:00.000Z (opcional)",
   "reminderEnabled": true
 }
@@ -186,7 +190,9 @@ sequenceDiagram
     "title": "string",
     "description": "string | undefined",
     "eventType": "VET_APPOINTMENT",
-    "eventDate": "ISO date",
+    "startDate": "ISO date",
+    "endDate": "ISO date",
+    "location": "string | undefined",
     "reminderAt": "ISO date | undefined",
     "reminderEnabled": true
   },
@@ -277,7 +283,7 @@ npm run test:watch    # modo watch
 npm run test:coverage # con reporte de cobertura
 ```
 
-- **77 tests** cubriendo entidades, casos de uso, repositorio y capa de Pub/Sub.
+- **81 tests** cubriendo entidades, casos de uso, repositorio y capa de Pub/Sub.
 - **~91% de statements** cubiertos.
 - Mocks manuales para Supabase y para el cliente de Pub/Sub — ningún test toca servicios reales.
 
