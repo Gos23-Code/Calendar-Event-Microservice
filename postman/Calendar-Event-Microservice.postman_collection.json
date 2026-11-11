@@ -1,0 +1,598 @@
+{
+  "info": {
+    "_postman_id": "7c1e2a4b-3d5f-4a6e-9b8c-1f2e3d4c5b6a",
+    "name": "Calendar Event Microservice",
+    "description": "Colección de la API del microservicio de calendario.\n\nAntes de correr:\n1. Elige el environment **Local** o **CloudRun**.\n2. Llena `userId`, `otherUserId` (un segundo usuario distinto, para probar 403) y `petId` (una mascota existente) en el environment.\n3. Las fechas (`startDate`, `endDate`, `reminderAt`) se generan automáticamente en cada request (siempre futuras).\n4. Los IDs de los eventos creados (`userEventId`, `petEventId`) se guardan solos en el environment al crear eventos.\n\nLa carpeta *Crear* debe correr antes que *Listar* y *Actualizar y eliminar*. Se puede correr toda la colección con el Collection Runner en orden.\n\nNo hay autenticación: el `userId` viaja en body o query.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const now = Date.now();",
+          "const DAY = 24 * 60 * 60 * 1000;",
+          "pm.collectionVariables.set('startDate', new Date(now + 7 * DAY).toISOString());",
+          "pm.collectionVariables.set('endDate', new Date(now + 7 * DAY + 60 * 60 * 1000).toISOString());",
+          "pm.collectionVariables.set('reminderAt', new Date(now + 6 * DAY).toISOString());"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Crear",
+      "item": [
+        {
+          "name": "Crear evento de usuario (201)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('Sin petId => calendario de usuario', () => pm.expect(pm.response.json().pet_id).to.be.null);",
+                  "if (pm.response.code === 201) { pm.environment.set('userEventId', pm.response.json().id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"title\": \"Recordatorio general\",\n  \"description\": \"Evento de calendario de usuario\",\n  \"eventType\": \"OTHER\",\n  \"startDate\": \"{{startDate}}\",\n  \"endDate\": \"{{endDate}}\",\n  \"location\": \"Casa\",\n  \"reminderAt\": \"{{reminderAt}}\",\n  \"reminderEnabled\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events"]
+            }
+          }
+        },
+        {
+          "name": "Crear evento de mascota (201)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('Con petId => calendario de mascota', () => pm.expect(pm.response.json().pet_id).to.eql(pm.environment.get('petId')));",
+                  "if (pm.response.code === 201) { pm.environment.set('petEventId', pm.response.json().id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"petId\": \"{{petId}}\",\n  \"title\": \"Cita veterinaria\",\n  \"description\": \"Vacuna anual\",\n  \"eventType\": \"VET_APPOINTMENT\",\n  \"startDate\": \"{{startDate}}\",\n  \"endDate\": \"{{endDate}}\",\n  \"location\": \"Clínica Veterinaria Central\",\n  \"reminderAt\": \"{{reminderAt}}\",\n  \"reminderEnabled\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events"]
+            }
+          }
+        },
+        {
+          "name": "Crear sin userId (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401 - userId obligatorio en body', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Sin dueño\",\n  \"eventType\": \"OTHER\",\n  \"startDate\": \"{{startDate}}\",\n  \"endDate\": \"{{endDate}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events"]
+            }
+          }
+        },
+        {
+          "name": "Crear con tipo inválido (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 - eventType inválido', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"title\": \"Tipo inválido\",\n  \"eventType\": \"NO_EXISTE\",\n  \"startDate\": \"{{startDate}}\",\n  \"endDate\": \"{{endDate}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events"]
+            }
+          }
+        },
+        {
+          "name": "Crear con endDate anterior a startDate (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 - endDate < startDate', () => pm.response.to.have.status(400));",
+                  "pm.test('Mensaje de error de fechas', () => pm.expect(pm.response.json().error).to.eql('End date cannot be before start date'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"title\": \"Fechas invertidas\",\n  \"eventType\": \"OTHER\",\n  \"startDate\": \"{{endDate}}\",\n  \"endDate\": \"{{startDate}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events"]
+            }
+          }
+        },
+        {
+          "name": "Crear sin campos obligatorios (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 - faltan campos', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Listar",
+      "item": [
+        {
+          "name": "Listar todos los eventos del usuario",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Respuesta con arreglo events', () => pm.expect(pm.response.json().events).to.be.an('array'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events?userId={{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events"],
+              "query": [{ "key": "userId", "value": "{{userId}}" }]
+            }
+          }
+        },
+        {
+          "name": "Listar calendario de usuario (calendarType=user)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Solo eventos sin mascota', () => pm.response.json().events.forEach(e => pm.expect(e.pet_id).to.be.null));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events?userId={{userId}}&calendarType=user",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events"],
+              "query": [
+                { "key": "userId", "value": "{{userId}}" },
+                { "key": "calendarType", "value": "user" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Listar calendario de mascotas (calendarType=pet)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Solo eventos con mascota', () => pm.response.json().events.forEach(e => pm.expect(e.pet_id).to.not.be.null));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events?userId={{userId}}&calendarType=pet",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events"],
+              "query": [
+                { "key": "userId", "value": "{{userId}}" },
+                { "key": "calendarType", "value": "pet" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Listar eventos por mascota (petId)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Todos los eventos son de la mascota', () => pm.response.json().events.forEach(e => pm.expect(e.pet_id).to.eql(pm.environment.get('petId'))));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events?petId={{petId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events"],
+              "query": [{ "key": "petId", "value": "{{petId}}" }]
+            }
+          }
+        },
+        {
+          "name": "Listar sin userId ni petId (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Actualizar y eliminar",
+      "item": [
+        {
+          "name": "Actualizar título y recordatorio (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Título actualizado', () => pm.expect(pm.response.json().title).to.eql('Recordatorio general (editado)'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"title\": \"Recordatorio general (editado)\",\n  \"reminderAt\": \"{{reminderAt}}\",\n  \"reminderEnabled\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events/{{userEventId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events", "{{userEventId}}"]
+            }
+          }
+        },
+        {
+          "name": "Actualizar sin userId (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Sin dueño\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events/{{userEventId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events", "{{userEventId}}"]
+            }
+          }
+        },
+        {
+          "name": "Actualizar sin campos (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 - No fields to update', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events/{{userEventId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events", "{{userEventId}}"]
+            }
+          }
+        },
+        {
+          "name": "Actualizar como otro usuario (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 403 - no es el dueño', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{otherUserId}}\",\n  \"title\": \"Intento ajeno\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events/{{userEventId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events", "{{userEventId}}"]
+            }
+          }
+        },
+        {
+          "name": "Actualizar evento inexistente (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"title\": \"No existe\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events/00000000-0000-0000-0000-000000000000",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events", "00000000-0000-0000-0000-000000000000"]
+            }
+          }
+        },
+        {
+          "name": "Eliminar evento de usuario como otro usuario (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 403 - no es el dueño', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events/{{userEventId}}?userId={{otherUserId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events", "{{userEventId}}"],
+              "query": [{ "key": "userId", "value": "{{otherUserId}}" }]
+            }
+          }
+        },
+        {
+          "name": "Eliminar sin userId (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events/{{userEventId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events", "{{userEventId}}"]
+            }
+          }
+        },
+        {
+          "name": "Eliminar evento de usuario (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('success = true', () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events/{{userEventId}}?userId={{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events", "{{userEventId}}"],
+              "query": [{ "key": "userId", "value": "{{userId}}" }]
+            }
+          }
+        },
+        {
+          "name": "Eliminar evento de mascota (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events/{{petEventId}}?userId={{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events", "{{petEventId}}"],
+              "query": [{ "key": "userId", "value": "{{userId}}" }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Recordatorios",
+      "item": [
+        {
+          "name": "Chequear recordatorios vencidos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Respuesta con checked, notified y failed', () => { const b = pm.response.json(); pm.expect(b).to.have.all.keys('checked', 'notified', 'failed'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/calendar-events/reminders/check",
+              "host": ["{{baseUrl}}"],
+              "path": ["calendar-events", "reminders", "check"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,5 +1,10 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    // CAL-01: falla al arrancar si INTERNAL_API_KEY no está definida o tiene espacios.
+    // Sin esta clave, los endpoints /internal/** y los jobs quedarían sin protección.
+    const { getInternalApiKey } = await import('@/infrastructure/auth/internalApiKey');
+    getInternalApiKey();
+
     // Este servicio es PUBLISHER en el topic "calendar-event". La única
     // suscripción a ese topic ("sub-notification-calendar") pertenece al
     // notification-microservice: si este servicio también hace pull() de

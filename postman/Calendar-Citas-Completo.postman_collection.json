@@ -1,0 +1,611 @@
+{
+  "info": {
+    "_postman_id": "c1a2b3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+    "name": "Calendar - Citas (completo)",
+    "description": "Pruebas de las rutas de citas (Fase 2). Usar con el environment 'Calendar - Citas Local'.\n\nORDEN:\n0. Auth: obtener tokens (rellenar loginPath y credenciales del environment).\n1. Citas - dueño: ruta POST /veterinaries/{vetId}/appointment-requests. SOLO depende de Supabase y del token: se puede probar hoy.\n2. Citas - clínica: ruta POST /veterinaries/{vetId}/appointments. Además necesita que Veterinary tenga la clínica, el empleado y la mascota compartida con ese mismo vetId.\n\nLIMPIEZA: las citas creadas quedan en la base. Antes de volver a correr la colección, borra las de prueba (ver el SQL al final de esta descripción), o cambia startsAt/clinicStartsAt a otra franja libre.\n\nSQL de limpieza (revisar antes de ejecutar):\nDELETE FROM public.appointments WHERE created_at > now() - interval '1 day';",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "veterinaryId", "value": "11111111-1111-4111-8111-111111111111", "description": "Clínica de demo. Debe ser igual a SIM_VET_ID en .env.local." },
+    { "key": "otherVetId", "value": "22222222-2222-4222-8222-222222222299", "description": "Otra clínica, para probar TENANT_MISMATCH." },
+    { "key": "serviceConsulta", "value": "44444444-4444-4444-8444-444444444441" },
+    { "key": "servicePosop", "value": "44444444-4444-4444-8444-444444444443" },
+    { "key": "serviceBano", "value": "44444444-4444-4444-8444-444444444444", "description": "Solo Camila es elegible." },
+    { "key": "petToby", "value": "33333333-3333-4333-8333-333333333331", "description": "Compartida con la clínica y del dueño de demo." },
+    { "key": "petNube", "value": "33333333-3333-4333-8333-333333333333", "description": "Sin dueño con app: debe responder PET_NOT_OWNED." },
+    { "key": "luisId", "value": "aaaaaaaa-0000-4000-8000-000000000001" },
+    { "key": "saraId", "value": "bbbbbbbb-0000-4000-8000-000000000002" },
+    { "key": "camilaId", "value": "cccccccc-0000-4000-8000-000000000003" },
+    { "key": "startsAt", "value": "2026-12-07T15:00:00.000Z", "description": "Lunes 10:00 Bogotá. Debe ser una fecha futura." },
+    { "key": "clinicStartsAt", "value": "2026-12-07T16:00:00.000Z", "description": "Lunes 11:00 Bogotá (franja distinta a la del dueño)." },
+    { "key": "ownerToken", "value": "", "description": "Se llena solo al correr 0.2 (login del dueño)." },
+    { "key": "clinicBaseToken", "value": "", "description": "Se llena solo al correr 0.3 (login del empleado de clínica)." },
+    { "key": "clinicToken", "value": "", "description": "Se llena solo al correr 0.4 (contexto de clínica)." }
+  ],
+  "item": [
+    {
+      "name": "0. Auth (servicio User)",
+      "item": [
+        {
+          "name": "0.1 JWKS (verifica que el servicio User responde)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{userServiceUrl}}/.well-known/jwks.json",
+              "host": ["{{userServiceUrl}}"],
+              "path": [".well-known", "jwks.json"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Tiene llaves RS256', () => pm.expect(pm.response.json().keys[0].alg).to.eql('RS256'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "0.2 Login dueño (obtiene ownerToken)",
+          "description": "PENDIENTE: definir loginPath en el environment. Guarda el token y muestra en la consola el sub: ese valor va en SIM_OWNER_USER_ID de .env.local.",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{ownerEmail}}\",\n  \"password\": \"{{ownerPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{userServiceUrl}}{{loginPath}}",
+              "host": ["{{userServiceUrl}}"],
+              "path": ["{{loginPath}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "const token = body.access_token || body.accessToken || body.token;",
+                  "pm.test('Respuesta con token', () => pm.expect(token, 'claves: ' + Object.keys(body).join(',')).to.be.a('string'));",
+                  "if (token) {",
+                  "  pm.environment.set('ownerToken', token);",
+                  "  const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');",
+                  "  const payload = JSON.parse(atob(part + '='.repeat((4 - part.length % 4) % 4)));",
+                  "  pm.environment.set('ownerSub', payload.sub);",
+                  "console.log('ctx =', payload.ctx, '| sub =', payload.sub, '<- copiar a SIM_OWNER_USER_ID');",
+                  "  pm.test('ctx es USER', () => pm.expect(payload.ctx).to.eql('USER'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "0.3 Login empleado de clínica (obtiene clinicBaseToken)",
+          "description": "PENDIENTE: el empleado debe existir en el servicio User y tener acceso a la clínica.",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{clinicEmail}}\",\n  \"password\": \"{{clinicPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{userServiceUrl}}{{loginPath}}",
+              "host": ["{{userServiceUrl}}"],
+              "path": ["{{loginPath}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "const token = body.access_token || body.accessToken || body.token;",
+                  "if (token) { pm.environment.set('clinicBaseToken', token); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "0.4 Contexto de clínica (obtiene clinicToken con vet_id)",
+          "description": "POST /auth/context/veterinary/{veterinaryId} del servicio User (CONTRATOS_COMPARTIDOS.md, 1.3).",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{clinicBaseToken}}" }],
+            "url": {
+              "raw": "{{userServiceUrl}}/auth/context/veterinary/{{veterinaryId}}",
+              "host": ["{{userServiceUrl}}"],
+              "path": ["auth", "context", "veterinary", "{{veterinaryId}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Contexto OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "const token = body.access_token || body.accessToken || body.token;",
+                  "if (token) {",
+                  "  pm.environment.set('clinicToken', token);",
+                  "  const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');",
+                  "  const payload = JSON.parse(atob(part + '='.repeat((4 - part.length % 4) % 4)));",
+                  "  pm.test('ctx VETERINARY y vet_id correcto', () => { pm.expect(payload.ctx).to.eql('VETERINARY'); pm.expect(payload.vet_id).to.eql(pm.collectionVariables.get('veterinaryId')); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Citas - dueño (solo Supabase + token)",
+      "item": [
+        {
+          "name": "1.1 Solicitud OK (201, REQUESTED con Dr. Luis)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"{{servicePosop}}\",\n  \"petId\": \"{{petToby}}\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"notes\": \"Se lame la herida por las noches\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/veterinaries/{{veterinaryId}}/appointment-requests",
+              "host": ["{{baseUrl}}"],
+              "path": ["veterinaries", "{{veterinaryId}}", "appointment-requests"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const b = pm.response.json();",
+                  "pm.test('REQUESTED (la clínica de demo exige confirmación)', () => pm.expect(b.status).to.eql('REQUESTED'));",
+                  "pm.test('Origen APP', () => pm.expect(b.origin).to.eql('APP'));",
+                  "pm.test('Asignado a Dr. Luis (primero elegible y libre)', () => pm.expect(b.employeeId).to.eql(pm.collectionVariables.get('luisId')));",
+                  "pm.test('Fin = inicio + 30 min', () => pm.expect(new Date(b.endsAt) - new Date(b.startsAt)).to.eql(30 * 60000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.2 Misma franja otra vez (201, asignada a Dra. Sara)",
+          "description": "Luis ya tiene la franja de 1.1. El sistema debe asignar a Sara, la otra elegible.",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"{{servicePosop}}\",\n  \"petId\": \"{{petToby}}\",\n  \"startsAt\": \"{{startsAt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/veterinaries/{{veterinaryId}}/appointment-requests",
+              "host": ["{{baseUrl}}"],
+              "path": ["veterinaries", "{{veterinaryId}}", "appointment-requests"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('Asignada a Dra. Sara', () => pm.expect(pm.response.json().employeeId).to.eql(pm.collectionVariables.get('saraId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.3 Baño y corte solo con Camila (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"{{serviceBano}}\",\n  \"petId\": \"{{petToby}}\",\n  \"startsAt\": \"{{startsAt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/veterinaries/{{veterinaryId}}/appointment-requests",
+              "host": ["{{baseUrl}}"],
+              "path": ["veterinaries", "{{veterinaryId}}", "appointment-requests"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('Solo Camila es elegible para el baño', () => pm.expect(pm.response.json().employeeId).to.eql(pm.collectionVariables.get('camilaId')));",
+                  "pm.test('Duración 60 min', () => pm.expect(pm.response.json().durationMinutes).to.eql(60));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.4 Menos de 1 hora de anticipación (409 SLOT_UNAVAILABLE)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"{{servicePosop}}\",\n  \"petId\": \"{{petToby}}\",\n  \"startsAt\": \"{{soonStartsAt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/veterinaries/{{veterinaryId}}/appointment-requests",
+              "host": ["{{baseUrl}}"],
+              "path": ["veterinaries", "{{veterinaryId}}", "appointment-requests"]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.variables.set('soonStartsAt', new Date(Date.now() + 30 * 60000).toISOString());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409', () => pm.response.to.have.status(409));",
+                  "pm.test('SLOT_UNAVAILABLE', () => pm.expect(pm.response.json().code).to.eql('SLOT_UNAVAILABLE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.5 Sin token (401 MISSING_TOKEN)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"{{servicePosop}}\",\n  \"petId\": \"{{petToby}}\",\n  \"startsAt\": \"{{startsAt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/veterinaries/{{veterinaryId}}/appointment-requests",
+              "host": ["{{baseUrl}}"],
+              "path": ["veterinaries", "{{veterinaryId}}", "appointment-requests"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));",
+                  "pm.test('MISSING_TOKEN', () => pm.expect(pm.response.json().code).to.eql('MISSING_TOKEN'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.6 Mascota sin dueño con app (403 PET_NOT_OWNED)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"{{servicePosop}}\",\n  \"petId\": \"{{petNube}}\",\n  \"startsAt\": \"{{startsAt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/veterinaries/{{veterinaryId}}/appointment-requests",
+              "host": ["{{baseUrl}}"],
+              "path": ["veterinaries", "{{veterinaryId}}", "appointment-requests"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));",
+                  "pm.test('PET_NOT_OWNED', () => pm.expect(pm.response.json().code).to.eql('PET_NOT_OWNED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.7 Cuerpo sin serviceId (400 VALIDATION_ERROR)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"petId\": \"{{petToby}}\",\n  \"startsAt\": \"{{startsAt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/veterinaries/{{veterinaryId}}/appointment-requests",
+              "host": ["{{baseUrl}}"],
+              "path": ["veterinaries", "{{veterinaryId}}", "appointment-requests"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('VALIDATION_ERROR', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_ERROR'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.8 Token de clínica en ruta de dueño (403 OWNER_TOKEN_REQUIRED)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{clinicToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"{{servicePosop}}\",\n  \"petId\": \"{{petToby}}\",\n  \"startsAt\": \"{{startsAt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/veterinaries/{{veterinaryId}}/appointment-requests",
+              "host": ["{{baseUrl}}"],
+              "path": ["veterinaries", "{{veterinaryId}}", "appointment-requests"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));",
+                  "pm.test('OWNER_TOKEN_REQUIRED', () => pm.expect(pm.response.json().code).to.eql('OWNER_TOKEN_REQUIRED'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Citas - clínica (requiere datos en Veterinary)",
+      "description": "Necesita: la clínica veterinaryId existente en Veterinary, el empleado con APPOINTMENT_MANAGE y la mascota petToby compartida con esa clínica. Sin eso, access responde 404 o ACCESS_DENIED.",
+      "item": [
+        {
+          "name": "2.1 Crear cita confirmada (201 CONFIRMED)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{clinicToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"{{servicePosop}}\",\n  \"petId\": \"{{petToby}}\",\n  \"employeeId\": \"{{luisId}}\",\n  \"startsAt\": \"{{clinicStartsAt}}\",\n  \"notes\": \"Vacuna anual\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/veterinaries/{{veterinaryId}}/appointments",
+              "host": ["{{baseUrl}}"],
+              "path": ["veterinaries", "{{veterinaryId}}", "appointments"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('CONFIRMED y origen CLINIC', () => { const b = pm.response.json(); pm.expect(b.status).to.eql('CONFIRMED'); pm.expect(b.origin).to.eql('CLINIC'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.2 Empleado no elegible para el servicio (409 EMPLOYEE_NOT_ELIGIBLE)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{clinicToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"{{serviceConsulta}}\",\n  \"petId\": \"{{petToby}}\",\n  \"employeeId\": \"{{camilaId}}\",\n  \"startsAt\": \"2026-12-07T17:00:00.000Z\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/veterinaries/{{veterinaryId}}/appointments",
+              "host": ["{{baseUrl}}"],
+              "path": ["veterinaries", "{{veterinaryId}}", "appointments"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409', () => pm.response.to.have.status(409));",
+                  "pm.test('EMPLOYEE_NOT_ELIGIBLE', () => pm.expect(pm.response.json().code).to.eql('EMPLOYEE_NOT_ELIGIBLE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.3 Token de otra clínica (403 TENANT_MISMATCH)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{clinicToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"{{servicePosop}}\",\n  \"petId\": \"{{petToby}}\",\n  \"employeeId\": \"{{luisId}}\",\n  \"startsAt\": \"{{clinicStartsAt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/veterinaries/{{otherVetId}}/appointments",
+              "host": ["{{baseUrl}}"],
+              "path": ["veterinaries", "{{otherVetId}}", "appointments"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));",
+                  "pm.test('TENANT_MISMATCH', () => pm.expect(pm.response.json().code).to.eql('TENANT_MISMATCH'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.4 Token de dueño en ruta de clínica (403 CLINIC_TOKEN_REQUIRED)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"{{servicePosop}}\",\n  \"petId\": \"{{petToby}}\",\n  \"employeeId\": \"{{luisId}}\",\n  \"startsAt\": \"{{clinicStartsAt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/veterinaries/{{veterinaryId}}/appointments",
+              "host": ["{{baseUrl}}"],
+              "path": ["veterinaries", "{{veterinaryId}}", "appointments"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));",
+                  "pm.test('CLINIC_TOKEN_REQUIRED', () => pm.expect(pm.response.json().code).to.eql('CLINIC_TOKEN_REQUIRED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.5 Sin token (401)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"{{servicePosop}}\",\n  \"petId\": \"{{petToby}}\",\n  \"employeeId\": \"{{luisId}}\",\n  \"startsAt\": \"{{clinicStartsAt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/veterinaries/{{veterinaryId}}/appointments",
+              "host": ["{{baseUrl}}"],
+              "path": ["veterinaries", "{{veterinaryId}}", "appointments"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.6 Cuerpo sin employeeId (400 VALIDATION_ERROR)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{clinicToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"{{servicePosop}}\",\n  \"petId\": \"{{petToby}}\",\n  \"startsAt\": \"{{clinicStartsAt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/veterinaries/{{veterinaryId}}/appointments",
+              "host": ["{{baseUrl}}"],
+              "path": ["veterinaries", "{{veterinaryId}}", "appointments"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('VALIDATION_ERROR', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_ERROR'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
