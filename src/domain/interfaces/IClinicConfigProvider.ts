@@ -1,6 +1,7 @@
 // Configuración de reservas de una clínica (pendiente de Veterinary, dependencia 2 de la Fase 5).
 export interface ClinicConfig {
   veterinaryId: string;
+  name: string;
   status: 'ACTIVE' | 'INACTIVE';
   allowOnlineBooking: boolean;
   bookingRequiresConfirmation: boolean;

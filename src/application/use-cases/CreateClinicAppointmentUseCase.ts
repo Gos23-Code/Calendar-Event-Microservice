@@ -110,6 +110,8 @@ export class CreateClinicAppointmentUseCase {
       status: AppointmentStatus.CONFIRMED,
       origin: AppointmentOrigin.CLINIC,
       notes: input.notes ?? null,
+      cancellationReason: null,
+      cancelledBy: null,
       createdBy: principal.userId,
     };
 

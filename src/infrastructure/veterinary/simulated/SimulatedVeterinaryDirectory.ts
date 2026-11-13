@@ -10,7 +10,7 @@ export class SimulatedClinicConfigProvider implements IClinicConfigProvider {
 
   async get(veterinaryId: string): Promise<ClinicConfig | null> {
     if (veterinaryId !== this.seed.vetId) return null;
-    return { veterinaryId, ...this.seed.clinic };
+    return { veterinaryId, name: this.seed.clinicName, ...this.seed.clinic };
   }
 }
 

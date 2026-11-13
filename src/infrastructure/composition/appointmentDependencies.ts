@@ -4,10 +4,20 @@ import { createJwtVerifier, getJwtVerifierConfig } from '../auth/jwtVerifier';
 import { SupabaseAppointmentRepository } from '../database/supabase/SupabaseAppointmentRepository';
 import { SimulatedScheduleRulesProvider } from '../veterinary/SimulatedScheduleRulesProvider';
 import { VeterinaryAccessClient } from '../veterinary/VeterinaryAccessClient';
-import { SimulatedClinicConfigProvider, SimulatedPetAccessProvider, SimulatedServiceCatalog } from '../veterinary/simulated/SimulatedVeterinaryDirectory';
+import {
+  SimulatedClinicConfigProvider,
+  SimulatedPetAccessProvider,
+  SimulatedServiceCatalog,
+} from '../veterinary/simulated/SimulatedVeterinaryDirectory';
+import { SimulatedStaffDirectory } from '../veterinary/simulated/SimulatedStaffDirectory';
 import { loadSimulatedSeed } from '../veterinary/simulated/simulatedSeed';
 import { CreateClinicAppointmentUseCase } from '@/application/use-cases/CreateClinicAppointmentUseCase';
 import { RequestAppointmentUseCase } from '@/application/use-cases/RequestAppointmentUseCase';
+import { AppointmentLifecycleUseCase } from '@/application/use-cases/AppointmentLifecycleUseCase';
+import {
+  ClinicAgendaUseCase,
+  OwnerAppointmentsUseCase,
+} from '@/application/use-cases/AppointmentQueriesUseCase';
 import { Principal } from '@/domain/entities/Principal';
 
 // Composición de dependencias del servidor. Este archivo es el ÚNICO que conoce la clave
@@ -19,6 +29,9 @@ export interface AppointmentHttpDeps {
   authenticate: AuthenticateFn;
   clinicUseCase: CreateClinicAppointmentUseCase;
   requestUseCase: RequestAppointmentUseCase;
+  lifecycle: AppointmentLifecycleUseCase;
+  agenda: ClinicAgendaUseCase;
+  owner: OwnerAppointmentsUseCase;
 }
 
 // supabase-js necesita la URL base. Si viene con /rest/v1 (como la URL de la API REST), se quita.
@@ -59,10 +72,22 @@ export function getAppointmentHttpDeps(env: Record<string, string | undefined> =
     apiKey: readRequiredEnv('INTERNAL_API_KEY', env),
   });
 
+  const staff = new SimulatedStaffDirectory(seed);
+
   cached = {
     authenticate: createJwtVerifier(getJwtVerifierConfig(env)),
     clinicUseCase: new CreateClinicAppointmentUseCase({ ...shared, access }),
     requestUseCase: new RequestAppointmentUseCase(shared),
+    lifecycle: new AppointmentLifecycleUseCase({
+      appointments: shared.appointments,
+      access,
+      clinicConfig: shared.clinicConfig,
+      rules: shared.rules,
+      catalog: shared.catalog,
+      now: shared.now,
+    }),
+    agenda: new ClinicAgendaUseCase({ appointments: shared.appointments, staff }),
+    owner: new OwnerAppointmentsUseCase({ appointments: shared.appointments, clinicConfig: shared.clinicConfig }),
   };
   return cached;
 }

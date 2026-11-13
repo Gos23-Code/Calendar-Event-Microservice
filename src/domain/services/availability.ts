@@ -30,6 +30,7 @@ export interface ScheduleRules {
 }
 
 export interface ActiveAppointment {
+  id?: string; // permite excluir la propia cita al reprogramarla
   employeeId: string;
   startsAt: Date;
   endsAt: Date;

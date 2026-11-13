@@ -100,6 +100,8 @@ export class RequestAppointmentUseCase {
       status: confirmed ? AppointmentStatus.CONFIRMED : AppointmentStatus.REQUESTED,
       origin: AppointmentOrigin.APP,
       notes: input.notes ?? null,
+      cancellationReason: null,
+      cancelledBy: null,
       createdBy: principal.userId,
     };
 

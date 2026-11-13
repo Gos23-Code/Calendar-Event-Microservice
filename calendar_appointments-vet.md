@@ -2,7 +2,7 @@
 
 > Documento de retoma. Describe lo que ya está hecho en el repo, lo que falta y cómo probarlo.
 > Fuentes de la spec: `CALENDAR_SERVICE_CHANGES.md` (qué debe hacer Calendar) y `CONTRATOS_COMPARTIDOS.md` (JWT, errores, acceso, eventos).
-> Última actualización: 2026-11-11.
+> Última actualización: 2026-11-13. Alcance: trabajo local. El despliegue (GCP, Cloud Run, Scheduler) lo gestiona el equipo.
 
 ---
 
@@ -12,12 +12,12 @@
 |---|---|---|
 | 1 | Cimientos: tabla, máquina de estados, JWT/JWKS, clave interna | Terminada (falta verificar arranque sin `INTERNAL_API_KEY`) |
 | 2 | Disponibilidad y creación de citas | En curso: pasos 1, 2 y 3 implementados. Falta probar en Postman |
-| 3 | Transiciones (confirmar, rechazar, cancelar, check-in, etc.) y consultas | Pendiente |
+| 3 | Transiciones (confirmar, rechazar, cancelar, check-in, completar, no asistió, reprogramar) y consultas | Pasos 3.1 y 3.2 implementados con sus tests. Falta probar la colección de Postman de la Fase 3 |
 | 4 | Eventos Pub/Sub y recordatorios | Pendiente |
 | 5 | Integración real con Veterinary y Pets | Pendiente (depende de contratos de otros equipos) |
-| 6 | Migración a proyecto nuevo de GCP | **Urgente: el proyecto actual vence el 18 de noviembre** |
+| 6 | Migración a proyecto nuevo de GCP | Fuera de alcance para nosotros: lo gestiona el equipo de despliegue. El proyecto actual vence el 18 de noviembre |
 
-Estado de pruebas (última corrida completa): **26 suites y 288 tests pasan**. `tsc` y lint limpios. El build de producción pasó con las rutas nuevas. Nada está commiteado en git.
+Estado de pruebas (última corrida completa): **31 suites y 376 tests pasan**. `tsc` y lint limpios. El build de producción pasó antes de la Fase 3, con las rutas de Fase 2. Nada está commiteado en git.
 
 ---
 
@@ -35,6 +35,16 @@ Estado de pruebas (última corrida completa): **26 suites y 288 tests pasan**. `
 | Formato de error | `{ timestamp, status, error, message, code }`. `error` es la frase HTTP (`"Not Found"`). |
 | Cuenta de empleados | `access` de Veterinary es la fuente de verdad de permisos (`APPOINTMENT_MANAGE`). Caché de 60 s. |
 | Login del servicio User | Ruta `/auth/local`. |
+| Motivo de rechazo y cancelación | Se guarda en `cancellation_reason`, y `cancelled_by` indica `OWNER` o `CLINIC`. El rechazo exige motivo (400 si va vacío). |
+| Plazo del dueño | Cancelar o reprogramar exige `cancellationMinHours` de anticipación (409 `CANCELLATION_TOO_LATE`). **Supuesto:** el plazo aplica también a reprogramar, la spec solo lo nombra para cancelar. |
+| Reprogramar | Mantiene el mismo empleado y revalida la disponibilidad, excluyendo la propia cita. **Supuesto:** la spec no dice si se puede cambiar de empleado; por ahora no. |
+| Cita ajena (dueño) | 404 `NOT_FOUND`, igual que una cita de otra clínica. |
+| No asistió | Solo después de `starts_at` (409 `NO_SHOW_TOO_EARLY`). |
+| Transición inválida | 409 `APPOINTMENT_INVALID_TRANSITION`. |
+| Reprogramar una cita en curso o terminada | 409 `APPOINTMENT_NOT_RESCHEDULABLE` (solo se reprograman `REQUESTED` y `CONFIRMED`). |
+| Permisos para ver la agenda | Sin mascota no hay `access`, así que se usa un directorio de personal. **Simulado** en local hasta el endpoint de miembros de Veterinary. |
+| Agenda por rango | Máximo 31 días por consulta; `from` y `to` son obligatorios. |
+| Nombre de la clínica para el dueño | Viene de la configuración de la clínica. En local, de la semilla. |
 
 ---
 
@@ -99,6 +109,65 @@ Estado de pruebas (última corrida completa): **26 suites y 288 tests pasan**. `
 
 ---
 
+### 3.5 Fase 3, paso 1 (transiciones de la cita)
+
+**Dominio**
+- `src/domain/services/appointmentRules.ts`: reglas de tiempo como funciones puras. `ownerCanCancelAt` (plazo del dueño) y `noShowAllowedAt` (no asistió solo después del inicio).
+- `src/domain/entities/Appointment.ts`: se agregan `cancellationReason` y `cancelledBy` al registro.
+- `src/domain/interfaces/IAppointmentRepository.ts`: nuevos métodos `findById` (siempre acotado a la clínica) y `update`. `findActive` devuelve el `id`.
+- `src/domain/services/availability.ts`: `ActiveAppointment` acepta `id` opcional.
+
+**Aplicación**
+- `src/application/use-cases/AppointmentLifecycleUseCase.ts`: un método por acción.
+  - `confirm`: clínica, `REQUESTED → CONFIRMED`.
+  - `reject`: clínica, con motivo, `REQUESTED → REJECTED`.
+  - `cancel`: dueño (con plazo y solo su cita) o clínica, desde `REQUESTED` o `CONFIRMED`.
+  - `checkIn`: clínica, `CONFIRMED → CHECKED_IN`.
+  - `complete`: clínica, `CHECKED_IN → COMPLETED`.
+  - `noShow`: clínica, `CONFIRMED → NO_SHOW`, solo después del inicio.
+  - `reschedule`: dueño (con plazo) o clínica. Revalida la franja con `findAvailableSlot` y excluye la propia cita.
+- `src/application/services/findAvailableSlot.ts`: nuevo parámetro `excludeAppointmentId`.
+
+**Infraestructura**
+- `SupabaseAppointmentRepository`: `findById` (filtra por `veterinary_id`), `update` (traduce el choque `23P01` a conflicto) y los campos de cancelación.
+
+**Tests**
+- `appointmentRules.test.ts` (7): límites del plazo y del no asistió.
+- `AppointmentLifecycle.use_case.test.ts` (31): cada transición, tenant, dueño ajeno, permisos, plazos, motivo obligatorio, reprogramar con choque, reprogramar un baño con Camila.
+- `SupabaseAppointmentRepository.test.ts` actualizado a los campos nuevos.
+
+**Todavía no hay rutas HTTP para estas acciones.** Se agregan en el paso 3.2 junto con la agenda.
+
+### 3.6 Fase 3, paso 2 (rutas y consultas)
+
+**Rutas**
+- `PATCH /api/veterinaries/[veterinaryId]/appointments/[appointmentId]/[action]`: una sola ruta dinámica con la lista cerrada de acciones (`confirm`, `reject`, `cancel`, `check-in`, `complete`, `no-show`, `reschedule`). Una acción desconocida responde 404 `ACTION_NOT_FOUND`.
+- `GET /api/veterinaries/[veterinaryId]/appointments?from=&to=&employeeId=&status=`: agenda de la clínica. `from` y `to` son obligatorios; `status` acepta una lista separada por comas.
+- `GET /api/me/appointments?from=&to=`: citas del dueño en todas las clínicas. Cada cita trae `clinicName`.
+
+**Aplicación**
+- `src/application/use-cases/AppointmentQueriesUseCase.ts`:
+  - `ClinicAgendaUseCase`: token de clínica, mismo tenant, permiso `APPOINTMENT_MANAGE` (desde el directorio de personal) y rango válido.
+  - `OwnerAppointmentsUseCase`: token de dueño, rango válido. Consulta el nombre de cada clínica una sola vez.
+- `src/application/services/validateRange.ts`: rango `[from, to)` con `to` posterior a `from` y máximo 31 días.
+
+**Dominio e infraestructura**
+- `src/domain/interfaces/IStaffDirectory.ts` y `SimulatedStaffDirectory.ts`: permisos de personal sin mascota. **Simulado** hasta que Veterinary tenga el endpoint de miembros (dependencia 3).
+- `IAppointmentRepository`: nuevos `findAgenda` y `findByOwner`, implementados en Supabase y en memoria.
+- `IClinicConfig` ahora trae `name`. La semilla tiene `clinicName: "Clínica Patitas"`.
+- `seed.json`: nuevo bloque `staff` con el miembro de demo. `SIM_CLINIC_USER_ID` lo reemplaza.
+
+**Handlers:** `parseAgendaQuery`, `parseActionBody` por acción, `handleAppointmentAction`, `handleClinicAgenda` y `handleOwnerAppointments`.
+
+**Tests**
+- `AppointmentQueries.use_case.test.ts`: agenda (orden, filtros, tenant, permisos, rango) y lista del dueño (clínicas, nombre, rango).
+- `SimulatedStaffDirectory.test.ts`: directorio y overrides de la semilla.
+- `appointmentActions.test.ts`: parseo de la agenda y de cada acción, y las respuestas HTTP de acciones, agenda y lista del dueño.
+
+**Postman:** `postman/Calendar-Citas-Acciones-y-Consultas.postman_collection.json`.
+- Carpeta 4 (dueño): se puede probar hoy en local.
+- Carpeta 3 (clínica): necesita Veterinary y `SIM_CLINIC_USER_ID`.
+
 ## 4. Variables de entorno
 
 | Variable | Uso | Estado |
@@ -112,6 +181,7 @@ Estado de pruebas (última corrida completa): **26 suites y 288 tests pasan**. `
 | `JWT_AUDIENCE` | `myanimalog-api` | Configurada |
 | `SIM_OWNER_USER_ID` | `sub` del dueño de prueba (para que las mascotas de demo le pertenezcan) | **Pendiente** (lo sacas de la consola de Postman en `0.2`) |
 | `SIM_VET_ID` | Id de la clínica de demo (opcional, por defecto la de `seed.json`) | Opcional |
+| `SIM_CLINIC_USER_ID` | `sub` del empleado de clínica de prueba, para la agenda simulada | Opcional (sin ella, la agenda responde 403) |
 | `.env.example` | Plantilla con todas las variables, sin valores secretos | Hecho |
 
 ---
@@ -154,11 +224,15 @@ También hace falta `clinicEmail` y `clinicPassword` en el environment, y un emp
 - Endpoint de miembros de la clínica (para listar la agenda sin mascota).
 - Contrato del catálogo de Veterinary (el que mencionaste que enviarás).
 
-### 5.4 Fase 3 — transiciones y consultas
+### 5.4 Fase 3 — pendientes
 
-- Rutas: confirmar, rechazar, cancelar (con plazo de `cancellationMinHours`), reprogramar, check-in, completar, no asistió.
-- Consultas: agenda por día, semana o veterinario, y `GET /me/appointments`.
-- Reglas de tiempo: `NO_SHOW` solo después de `starts_at`.
+Hecho: transiciones y reglas de tiempo (3.5), rutas, agenda y lista del dueño (3.6).
+
+Pendiente:
+- **Probar la colección de Postman de la Fase 3** en local: carpeta 4 (dueño) primero, y después carpeta 3 (clínica) cuando Veterinary tenga los datos.
+- **Agenda por semana o por veterinario:** hoy la agenda filtra por rango y empleado, que cubre el caso de la pantalla. La vista semanal es solo una consulta de rango más amplio.
+- **Agenda sin mascota:** el endpoint de miembros de Veterinary (dependencia 3). En local se simula.
+- **Nombre y dirección de la clínica para el dueño:** hoy solo viene el nombre, de la semilla. La dirección y el teléfono llegan con el contrato de Veterinary.
 
 ### 5.5 Fase 4 — eventos y recordatorios
 
@@ -172,7 +246,9 @@ También hace falta `clinicEmail` y `clinicPassword` en el environment, y un emp
 - Caché: 60 s para permisos, 5 min para reglas de agenda.
 - Dueños sin app: destinatario con `recipient` (email/teléfono) desde Pets.
 
-### 5.7 Fase 6 — migración de GCP (urgente)
+### 5.7 Fase 6 — despliegue (fuera de nuestro alcance)
+
+El equipo de despliegue se encarga de esto. Lo dejamos anotado para que lo tengan a la vista.
 
 - **El proyecto de Google Cloud vence el 18 de noviembre de 2026.**
 - Recrear el job de Cloud Scheduler en el proyecto nuevo (`/api/calendar-events/reminders/check` y, cuando exista, `/internal/jobs/appointments/reminders`).
@@ -206,4 +282,6 @@ También hace falta `clinicEmail` y `clinicPassword` en el environment, y un emp
 1. Poner `SIM_OWNER_USER_ID` y reiniciar el servidor.
 2. Correr la carpeta 1 de Postman y pasarme los resultados.
 3. Mientras tanto: pedir a Veterinary el id de clínica de prueba y el contrato del catálogo, y definir `clinicEmail` / `clinicPassword`.
-4. Arrancar la Fase 6 (GCP) antes del 18 de noviembre, porque no depende de las fases 2 a 5.
+4. Probar la colección de Postman de la Fase 3 (carpeta 4 primero).
+5. Fase 4: eventos `APPOINTMENT_*` detrás de `EVENTS_ENABLED` y el job de recordatorios, en local con un publicador falso.
+5. El despliegue (GCP) lo gestiona el equipo; nosotros no lo tocamos.

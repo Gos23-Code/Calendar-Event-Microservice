@@ -1,7 +1,11 @@
 import { AppointmentRecord } from '@/domain/entities/Appointment';
 import { AppointmentOrigin } from '@/domain/enums/AppointmentOrigin';
 import { AppointmentStatus } from '@/domain/enums/AppointmentStatus';
-import { AppointmentConflictError, IAppointmentRepository } from '@/domain/interfaces/IAppointmentRepository';
+import {
+  AgendaFilter,
+  AppointmentConflictError,
+  IAppointmentRepository,
+} from '@/domain/interfaces/IAppointmentRepository';
 import { ClinicConfig, IClinicConfigProvider } from '@/domain/interfaces/IClinicConfigProvider';
 import { AccessDecision, IVeterinaryAccess } from '@/domain/interfaces/IVeterinaryAccess';
 import { IPetAccessProvider, PetInfo } from '@/domain/interfaces/IPetAccessProvider';
@@ -51,24 +55,59 @@ export class InMemoryAppointmentRepository implements IAppointmentRepository {
           r.startsAt < to &&
           r.endsAt > from
       )
-      .map((r) => ({ employeeId: r.employeeId as string, startsAt: r.startsAt, endsAt: r.endsAt }));
+      .map((r) => ({ id: r.id, employeeId: r.employeeId as string, startsAt: r.startsAt, endsAt: r.endsAt }));
+  }
+
+  async findById(veterinaryId: string, id: string): Promise<AppointmentRecord | null> {
+    return this.rows.find((r) => r.veterinaryId === veterinaryId && r.id === id) ?? null;
+  }
+
+  private conflictsWith(candidate: AppointmentRecord): boolean {
+    return this.rows.some(
+      (r) =>
+        r.id !== candidate.id &&
+        r.employeeId !== null &&
+        r.employeeId === candidate.employeeId &&
+        ACTIVE.includes(r.status) &&
+        ACTIVE.includes(candidate.status) &&
+        r.startsAt < candidate.endsAt &&
+        candidate.startsAt < r.endsAt
+    );
   }
 
   async insert(record: AppointmentRecord): Promise<AppointmentRecord> {
-    const conflict = this.rows.some(
-      (r) =>
-        r.employeeId !== null &&
-        r.employeeId === record.employeeId &&
-        ACTIVE.includes(r.status) &&
-        ACTIVE.includes(record.status) &&
-        r.startsAt < record.endsAt &&
-        record.startsAt < r.endsAt
-    );
-    if (conflict) {
+    if (this.conflictsWith(record)) {
       throw new AppointmentConflictError();
     }
     this.rows.push(record);
     return record;
+  }
+
+  async update(record: AppointmentRecord): Promise<AppointmentRecord> {
+    if (this.conflictsWith(record)) {
+      throw new AppointmentConflictError();
+    }
+    this.rows = this.rows.map((r) => (r.id === record.id ? record : r));
+    return record;
+  }
+
+  async findAgenda(veterinaryId: string, filter: AgendaFilter): Promise<AppointmentRecord[]> {
+    return this.rows
+      .filter(
+        (r) =>
+          r.veterinaryId === veterinaryId &&
+          r.startsAt >= filter.from &&
+          r.startsAt < filter.to &&
+          (filter.employeeId === undefined || r.employeeId === filter.employeeId) &&
+          (filter.statuses === undefined || filter.statuses.includes(r.status))
+      )
+      .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+  }
+
+  async findByOwner(ownerUserId: string, from: Date, to: Date): Promise<AppointmentRecord[]> {
+    return this.rows
+      .filter((r) => r.ownerUserId === ownerUserId && r.startsAt >= from && r.startsAt < to)
+      .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
   }
 }
 
@@ -88,6 +127,8 @@ export function makeRecord(overrides: Partial<AppointmentRecord> = {}): Appointm
     status: AppointmentStatus.CONFIRMED,
     origin: AppointmentOrigin.CLINIC,
     notes: null,
+    cancellationReason: null,
+    cancelledBy: null,
     createdBy: CLINIC_USER,
     ...overrides,
   };
@@ -95,6 +136,7 @@ export function makeRecord(overrides: Partial<AppointmentRecord> = {}): Appointm
 
 const DEFAULT_CONFIG: ClinicConfig = {
   veterinaryId: VET,
+  name: 'Clínica Patitas',
   status: 'ACTIVE',
   allowOnlineBooking: true,
   bookingRequiresConfirmation: false,

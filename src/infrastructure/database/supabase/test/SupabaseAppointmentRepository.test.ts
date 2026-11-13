@@ -46,6 +46,8 @@ const RECORD: AppointmentRecord = {
   status: AppointmentStatus.REQUESTED,
   origin: AppointmentOrigin.APP,
   notes: 'Se lame la herida',
+  cancellationReason: null,
+  cancelledBy: null,
   createdBy: 'owner-1',
 };
 
@@ -64,6 +66,8 @@ const ROW: AppointmentRow = {
   status: AppointmentStatus.REQUESTED,
   origin: AppointmentOrigin.APP,
   notes: 'Se lame la herida',
+  cancellation_reason: null,
+  cancelled_by: null,
   created_by: 'owner-1',
 };
 
@@ -112,8 +116,8 @@ describe('SupabaseAppointmentRepository.findActive', () => {
   it('devuelve las franjas ocupadas y descarta filas sin empleado', async () => {
     const { db } = fakeDb({
       data: [
-        { employee_id: 'emp-1', starts_at: '2026-12-07T15:00:00.000Z', ends_at: '2026-12-07T15:30:00.000Z' },
-        { employee_id: null, starts_at: '2026-12-07T16:00:00.000Z', ends_at: '2026-12-07T16:30:00.000Z' },
+        { id: 'apt-a', employee_id: 'emp-1', starts_at: '2026-12-07T15:00:00.000Z', ends_at: '2026-12-07T15:30:00.000Z' },
+        { id: 'apt-b', employee_id: null, starts_at: '2026-12-07T16:00:00.000Z', ends_at: '2026-12-07T16:30:00.000Z' },
       ],
     });
 
@@ -121,6 +125,7 @@ describe('SupabaseAppointmentRepository.findActive', () => {
 
     expect(active).toEqual([
       {
+        id: 'apt-a',
         employeeId: 'emp-1',
         startsAt: new Date('2026-12-07T15:00:00.000Z'),
         endsAt: new Date('2026-12-07T15:30:00.000Z'),

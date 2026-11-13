@@ -20,6 +20,8 @@ export interface SlotLookupRequest {
   employeeId?: string;
   // Empleados que Veterinary declara elegibles para el servicio. Si no se pasa, no se filtra.
   eligibleEmployeeIds?: string[];
+  // Al reprogramar, la propia cita no debe bloquear su nueva franja.
+  excludeAppointmentId?: string;
 }
 
 // Verifica que la franja pedida exista en la disponibilidad real y la devuelve.
@@ -54,7 +56,9 @@ export async function findAvailableSlot(
     rules.employees = rules.employees.filter((e) => eligible.has(e.employeeId));
   }
 
-  const active = await deps.appointments.findActive(req.veterinaryId, from, to);
+  const active = (await deps.appointments.findActive(req.veterinaryId, from, to)).filter(
+    (a) => a.id === undefined || a.id !== req.excludeAppointmentId
+  );
 
   // La fecha se interpreta en la zona de la clínica, no en la del servidor.
   const local = getZonedParts(req.startsAt, rules.timezone);

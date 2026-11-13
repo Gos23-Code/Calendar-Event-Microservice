@@ -1,8 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { AppointmentRecord } from '@/domain/entities/Appointment';
+import { AppointmentRecord, CancelledBy } from '@/domain/entities/Appointment';
 import { AppointmentOrigin } from '@/domain/enums/AppointmentOrigin';
 import { AppointmentStatus } from '@/domain/enums/AppointmentStatus';
-import { AppointmentConflictError, IAppointmentRepository } from '@/domain/interfaces/IAppointmentRepository';
+import {
+  AgendaFilter,
+  AppointmentConflictError,
+  IAppointmentRepository,
+} from '@/domain/interfaces/IAppointmentRepository';
 import { ActiveAppointment } from '@/domain/services/availability';
 
 const TABLE = 'appointments';
@@ -32,6 +36,8 @@ export interface AppointmentRow {
   status: AppointmentStatus;
   origin: AppointmentOrigin;
   notes: string | null;
+  cancellation_reason: string | null;
+  cancelled_by: CancelledBy | null;
   created_by: string;
 }
 
@@ -51,6 +57,8 @@ export function toRow(record: AppointmentRecord): AppointmentRow {
     status: record.status,
     origin: record.origin,
     notes: record.notes,
+    cancellation_reason: record.cancellationReason,
+    cancelled_by: record.cancelledBy,
     created_by: record.createdBy,
   };
 }
@@ -71,6 +79,8 @@ export function fromRow(row: AppointmentRow): AppointmentRecord {
     status: row.status,
     origin: row.origin,
     notes: row.notes,
+    cancellationReason: row.cancellation_reason,
+    cancelledBy: row.cancelled_by,
     createdBy: row.created_by,
   };
 }
@@ -78,10 +88,24 @@ export function fromRow(row: AppointmentRow): AppointmentRecord {
 export class SupabaseAppointmentRepository implements IAppointmentRepository {
   constructor(private readonly db: SupabaseClient) {}
 
+  async findById(veterinaryId: string, id: string): Promise<AppointmentRecord | null> {
+    const { data, error } = await this.db
+      .from(TABLE)
+      .select('*')
+      .eq('id', id)
+      .eq('veterinary_id', veterinaryId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Error consultando la cita: ${error.message}`);
+    }
+    return data ? fromRow(data as AppointmentRow) : null;
+  }
+
   async findActive(veterinaryId: string, from: Date, to: Date): Promise<ActiveAppointment[]> {
     const { data, error } = await this.db
       .from(TABLE)
-      .select('employee_id, starts_at, ends_at')
+      .select('id, employee_id, starts_at, ends_at')
       .eq('veterinary_id', veterinaryId)
       .in('status', ACTIVE_STATUSES)
       .lt('starts_at', to.toISOString())
@@ -93,7 +117,8 @@ export class SupabaseAppointmentRepository implements IAppointmentRepository {
 
     return (data ?? [])
       .filter((r: { employee_id: string | null }) => r.employee_id !== null)
-      .map((r: { employee_id: string; starts_at: string; ends_at: string }) => ({
+      .map((r: { id: string; employee_id: string; starts_at: string; ends_at: string }) => ({
+        id: r.id,
         employeeId: r.employee_id,
         startsAt: new Date(r.starts_at),
         endsAt: new Date(r.ends_at),
@@ -111,5 +136,61 @@ export class SupabaseAppointmentRepository implements IAppointmentRepository {
     }
 
     return fromRow(data as AppointmentRow);
+  }
+
+  async update(record: AppointmentRecord): Promise<AppointmentRecord> {
+    const { id, ...fields } = toRow(record);
+    const { data, error } = await this.db
+      .from(TABLE)
+      .update({ ...fields, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === PG_EXCLUSION_VIOLATION) {
+        throw new AppointmentConflictError();
+      }
+      throw new Error(`Error actualizando la cita: ${error.message}`);
+    }
+
+    return fromRow(data as AppointmentRow);
+  }
+
+  async findAgenda(veterinaryId: string, filter: AgendaFilter): Promise<AppointmentRecord[]> {
+    let query = this.db
+      .from(TABLE)
+      .select('*')
+      .eq('veterinary_id', veterinaryId)
+      .gte('starts_at', filter.from.toISOString())
+      .lt('starts_at', filter.to.toISOString());
+
+    if (filter.employeeId !== undefined) {
+      query = query.eq('employee_id', filter.employeeId);
+    }
+    if (filter.statuses !== undefined) {
+      query = query.in('status', filter.statuses);
+    }
+
+    const { data, error } = await query.order('starts_at', { ascending: true });
+    if (error) {
+      throw new Error(`Error consultando la agenda: ${error.message}`);
+    }
+    return (data ?? []).map((row) => fromRow(row as AppointmentRow));
+  }
+
+  async findByOwner(ownerUserId: string, from: Date, to: Date): Promise<AppointmentRecord[]> {
+    const { data, error } = await this.db
+      .from(TABLE)
+      .select('*')
+      .eq('owner_user_id', ownerUserId)
+      .gte('starts_at', from.toISOString())
+      .lt('starts_at', to.toISOString())
+      .order('starts_at', { ascending: true });
+
+    if (error) {
+      throw new Error(`Error consultando las citas del dueño: ${error.message}`);
+    }
+    return (data ?? []).map((row) => fromRow(row as AppointmentRow));
   }
 }
