@@ -2,7 +2,7 @@
 
 > Documento de retoma. Describe lo que ya está hecho en el repo, lo que falta y cómo probarlo.
 > Fuentes de la spec: `CALENDAR_SERVICE_CHANGES.md` (qué debe hacer Calendar) y `CONTRATOS_COMPARTIDOS.md` (JWT, errores, acceso, eventos).
-> Última actualización: 2026-11-13. Alcance: trabajo local. El despliegue (GCP, Cloud Run, Scheduler) lo gestiona el equipo.
+> Última actualización: 2026-11-16. Alcance: trabajo local. El despliegue (GCP, Cloud Run, Scheduler) lo gestiona el equipo.
 
 ---
 
@@ -12,12 +12,14 @@
 |---|---|---|
 | 1 | Cimientos: tabla, máquina de estados, JWT/JWKS, clave interna | Terminada (falta verificar arranque sin `INTERNAL_API_KEY`) |
 | 2 | Disponibilidad y creación de citas | En curso: pasos 1, 2 y 3 implementados. Falta probar en Postman |
-| 3 | Transiciones (confirmar, rechazar, cancelar, check-in, completar, no asistió, reprogramar) y consultas | Pasos 3.1 y 3.2 implementados con sus tests. Falta probar la colección de Postman de la Fase 3 |
-| 4 | Eventos Pub/Sub y recordatorios | Pendiente |
+| 3 | Transiciones (confirmar, rechazar, cancelar, check-in, completar, no asistió, reprogramar) y consultas | Pasos 3.1 y 3.2 implementados con sus tests. Carpeta 4 de Postman (dueño) probada. Falta la carpeta 3 (clínica), que depende de Veterinary |
+| 4 | Eventos Pub/Sub y recordatorios | Implementada en local, con los eventos apagados por defecto. Falta probar el job en Postman |
 | 5 | Integración real con Veterinary y Pets | Pendiente (depende de contratos de otros equipos) |
 | 6 | Migración a proyecto nuevo de GCP | Fuera de alcance para nosotros: lo gestiona el equipo de despliegue. El proyecto actual vence el 18 de noviembre |
 
-Estado de pruebas (última corrida completa): **31 suites y 376 tests pasan**. `tsc` y lint limpios. El build de producción pasó antes de la Fase 3, con las rutas de Fase 2. Nada está commiteado en git.
+Estado de pruebas (última corrida completa): **37 suites y 424 tests pasan**. `tsc` y lint del código fuente limpios. El build de producción pasó antes de la Fase 3, con las rutas de Fase 2.
+
+Commits: la Fase 1, la 2 y la 3 están en `2083816`. La Fase 4 y esta actualización van en el commit siguiente.
 
 ---
 
@@ -168,6 +170,38 @@ Estado de pruebas (última corrida completa): **31 suites y 376 tests pasan**. `
 - Carpeta 4 (dueño): se puede probar hoy en local.
 - Carpeta 3 (clínica): necesita Veterinary y `SIM_CLINIC_USER_ID`.
 
+### 3.7 Fase 4 (eventos y recordatorios)
+
+**Eventos**
+- `AppointmentEventType` (domain/enums): los siete `APPOINTMENT_*` del contrato.
+- `AppointmentEventMessage` (domain/entities): el sobre común (`eventType`, `userId`, `recipient`, `payload`, `occurredAt`, `metadata`).
+- `audienceFor` (domain/services): a quién llega cada evento. `REQUESTED` a la clínica. `CONFIRMED`, `REJECTED`, `COMPLETED` y `REMINDER` al dueño. `CANCELLED` y `RESCHEDULED` a la otra parte.
+- `AppointmentNotifier` (application/services): arma el sobre y lo publica. Si los eventos están apagados, responde `DISABLED`. Si el dueño no tiene app, responde `SKIPPED` y no publica. Si Pub/Sub falla, responde `FAILED` y no lanza error.
+- `PubSubAppointmentPublisher` (infrastructure/events): publica en `veterinary-appointments` (configurable con `VET_APPOINTMENTS_TOPIC`), con `eventType` en los atributos.
+
+**Dónde se disparan**
+- Clínica crea la cita: `CONFIRMED` al dueño.
+- Dueño pide la cita: `REQUESTED` a la clínica, o `CONFIRMED` al dueño si la clínica no requiere confirmación.
+- Confirmar, rechazar, cancelar, reprogramar y completar. El check-in y "no asistió" no generan evento.
+- Una falla al notificar nunca revierte la acción: la cita queda guardada.
+
+**Recordatorios**
+- `SendAppointmentRemindersUseCase`: busca citas `CONFIRMED` que empiezan en 23–24 h y no tienen `reminder_sent_at`. Envía el recordatorio y marca la cita solo si el evento salió.
+- Reprogramar reinicia `reminder_sent_at`, porque la cita tiene otra hora.
+- Si los eventos están apagados, el job responde `enabled: false` y no marca nada.
+- `POST /api/internal/jobs/appointments/reminders`: requiere `X-Internal-Api-Key`. Sin clave o con clave incorrecta responde 401.
+
+**Datos nuevos**
+- Mascotas con nombre (`petName`) y clínica con dirección y teléfono. Vienen de la semilla, hasta tener los contratos de Pets y Veterinary.
+
+**Tests**
+- `appointmentEventRouting.test.ts`, `AppointmentNotifier.test.ts`, `PubSubAppointmentPublisher.test.ts`.
+- `AppointmentEvents.use_case.test.ts`: eventos al crear y en cada acción, y que una falla no tumba la acción.
+- `SendAppointmentReminders.use_case.test.ts`: ventana, idempotencia, dueño sin app, fallas y apagado.
+- `reminderJob.test.ts`: clave interna y el flag `EVENTS_ENABLED`.
+
+**Postman:** `postman/Calendar-Recordatorios-Job.postman_collection.json` (sin clave, con clave y con clave incorrecta).
+
 ## 4. Variables de entorno
 
 | Variable | Uso | Estado |
@@ -182,16 +216,19 @@ Estado de pruebas (última corrida completa): **31 suites y 376 tests pasan**. `
 | `SIM_OWNER_USER_ID` | `sub` del dueño de prueba (para que las mascotas de demo le pertenezcan) | **Pendiente** (lo sacas de la consola de Postman en `0.2`) |
 | `SIM_VET_ID` | Id de la clínica de demo (opcional, por defecto la de `seed.json`) | Opcional |
 | `SIM_CLINIC_USER_ID` | `sub` del empleado de clínica de prueba, para la agenda simulada | Opcional (sin ella, la agenda responde 403) |
+| `EVENTS_ENABLED` | `true` publica eventos de cita en Pub/Sub. Por defecto apagado | Configurada en `false` |
+| `VET_APPOINTMENTS_TOPIC` | Topic de eventos de cita | Por defecto `veterinary-appointments` |
 | `.env.example` | Plantilla con todas las variables, sin valores secretos | Hecho |
 
 ---
 
 ## 5. Lo que falta
 
-### 5.1 Inmediato: cerrar el paso 3 (pruebas)
+### 5.1 Pruebas del dueño (carpetas 1 y 4): hechas
 
-1. Copiar el valor de `ownerSub` (environment de Postman, después de correr `0.2`) a `SIM_OWNER_USER_ID` en `.env.local`. Reiniciar `npm run dev`.
-2. Correr la carpeta **1. Citas — dueño**. Resultados esperados:
+Hecho: `SIM_OWNER_USER_ID` apunta al dueño de prueba, y la carpeta 1 y la carpeta 4 dieron los resultados esperados. La 4.4 y la 4.5 responden 403 `CLINIC_TOKEN_REQUIRED`, que es lo esperado.
+
+Referencia de la carpeta 1:
 
 | Request | Esperado |
 |---|---|
@@ -204,8 +241,7 @@ Estado de pruebas (última corrida completa): **31 suites y 376 tests pasan**. `
 | 1.7 Sin `serviceId` | 400, `VALIDATION_ERROR` |
 | 1.8 Token de clínica | 403, `OWNER_TOKEN_REQUIRED` |
 
-3. Verificar en Supabase → Table editor → `appointments` que aparezcan las filas de 1.1, 1.2 y 1.3.
-4. Antes de volver a correr: borrar las citas de prueba (SQL en la descripción de la colección) o cambiar `startsAt`.
+Antes de volver a correr: borrar las citas de prueba (SQL en la descripción de la colección) o cambiar `startsAt`.
 
 ### 5.2 Carpeta 2 (clínica): depende de Veterinary
 
@@ -234,11 +270,17 @@ Pendiente:
 - **Agenda sin mascota:** el endpoint de miembros de Veterinary (dependencia 3). En local se simula.
 - **Nombre y dirección de la clínica para el dueño:** hoy solo viene el nombre, de la semilla. La dirección y el teléfono llegan con el contrato de Veterinary.
 
-### 5.5 Fase 4 — eventos y recordatorios
+### 5.5 Fase 4 — pendientes
 
-- Publicar `APPOINTMENT_REQUESTED`, `APPOINTMENT_CONFIRMED`, `APPOINTMENT_REJECTED`, `APPOINTMENT_RESCHEDULED`, `APPOINTMENT_CANCELLED`, `APPOINTMENT_REMINDER`, `APPOINTMENT_COMPLETED` en el topic `veterinary-appointments`, con el sobre común, detrás de `EVENTS_ENABLED`.
-- Job `POST /internal/jobs/appointments/reminders`: citas `CONFIRMED` que empiezan en 23–24 h. Idempotente con `reminder_sent_at`.
-- Decidir si el job viejo de `calendar_events` se retira.
+Hecho: eventos, sobre común, recordatorios e idempotencia (sección 3.7).
+
+Pendiente:
+- **Dueño sin app:** no recibe eventos, porque el contacto (email y teléfono) vive en Pets. Se resuelve con el contrato de Pets (Fase 5).
+- **Contacto del dueño con app:** el sobre solo manda `userId`. Si el servicio de notificaciones necesita email o teléfono, ese dato sale del servicio User. Hay que confirmarlo con el equipo de notificaciones.
+- **Recordatorios perdidos:** si Pub/Sub falla al enviar un recordatorio, no se marca y no se reintenta, porque la ventana de 23–24 h ya pasó. Si esto importa, hay que ampliar la ventana o agregar reintentos.
+- **Activar eventos en un entorno compartido:** `EVENTS_ENABLED=true` publica de verdad. Eso lo decide el equipo, no nosotros en local.
+- **Job viejo de `calendar_events`:** decidir si se retira.
+- **Colección del job en Postman:** la request 2 (con clave) respondió 401 `INVALID_INTERNAL_KEY`. La clave de `.env.local` es válida (41 caracteres, sin espacios). Falta confirmar que la variable `internalApiKey` tenga el valor en *Current value* y que el servidor se reinició.
 
 ### 5.6 Fase 5 — integración real
 
@@ -258,7 +300,7 @@ El equipo de despliegue se encarga de esto. Lo dejamos anotado para que lo tenga
 
 ### 5.8 Otros pendientes
 
-- Verificar el arranque local sin `INTERNAL_API_KEY` (debe fallar con mensaje claro).
+- Hecho: el arranque sin `INTERNAL_API_KEY` falla, como se esperaba.
 - Revisar las vulnerabilidades que reportó `npm audit` al instalar `jose`.
 - Cobertura: `npm run test:coverage` falla por el umbral de ramas (~77% contra 80%). Ya estaba así antes de estos cambios.
 - Actualizar `CONTEXTO_PROYECTO.md`, el README y la colección de la API vieja.
@@ -272,16 +314,16 @@ El equipo de despliegue se encarga de esto. Lo dejamos anotado para que lo tenga
 - **Citas de prueba:** quedan en la base. Hay que borrarlas antes de volver a correr la colección.
 - **Tokens:** duran unos 15 minutos. Si aparece un 401 en medio de la carpeta, vuelve a correr `0.2`.
 - **Variables de colección:** la colección todavía tiene `ownerToken`, `clinicBaseToken` y `clinicToken` como variables de colección. Como el environment tiene prioridad, usa el environment **Calendar - Citas Local**.
-- **Sin commit:** ningún cambio de esta fase está commiteado.
+- **Commits:** la Fase 3 está en `2083816`. La Fase 4 se commitea junto con esta actualización.
 - **Documentos del panel de agenda** (`panel-vet-agenda-dia.md`, `panel-vet-agenda-detalle-cita.md`): son insumo de diseño y no se modificaron.
 
 ---
 
 ## 7. Próximo paso
 
-1. Poner `SIM_OWNER_USER_ID` y reiniciar el servidor.
-2. Correr la carpeta 1 de Postman y pasarme los resultados.
-3. Mientras tanto: pedir a Veterinary el id de clínica de prueba y el contrato del catálogo, y definir `clinicEmail` / `clinicPassword`.
-4. Probar la colección de Postman de la Fase 3 (carpeta 4 primero).
-5. Fase 4: eventos `APPOINTMENT_*` detrás de `EVENTS_ENABLED` y el job de recordatorios, en local con un publicador falso.
-5. El despliegue (GCP) lo gestiona el equipo; nosotros no lo tocamos.
+1. Colección del job (`Calendar-Recordatorios-Job`): confirmar que la request 2 responda 200 con la clave en *Current value* y el servidor reiniciado.
+2. Veterinary: pedir el id de clínica de prueba, un empleado con `APPOINTMENT_MANAGE`, una mascota compartida y el contrato del catálogo. Con eso se corre la carpeta 3 de la colección de la Fase 3 (clínica).
+3. Pets: pedir el contrato de contacto del dueño sin app.
+4. Decidir si un recordatorio fallido debe reintentarse. Hoy no se reintenta.
+5. Fase 5: reemplazar los datos simulados cuando existan los contratos.
+6. El despliegue (GCP) lo gestiona el equipo; nosotros no lo tocamos.

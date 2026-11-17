@@ -38,6 +38,7 @@ export interface AppointmentRow {
   notes: string | null;
   cancellation_reason: string | null;
   cancelled_by: CancelledBy | null;
+  reminder_sent_at: string | null;
   created_by: string;
 }
 
@@ -59,6 +60,7 @@ export function toRow(record: AppointmentRecord): AppointmentRow {
     notes: record.notes,
     cancellation_reason: record.cancellationReason,
     cancelled_by: record.cancelledBy,
+    reminder_sent_at: record.reminderSentAt ? record.reminderSentAt.toISOString() : null,
     created_by: record.createdBy,
   };
 }
@@ -81,6 +83,7 @@ export function fromRow(row: AppointmentRow): AppointmentRecord {
     notes: row.notes,
     cancellationReason: row.cancellation_reason,
     cancelledBy: row.cancelled_by,
+    reminderSentAt: row.reminder_sent_at ? new Date(row.reminder_sent_at) : null,
     createdBy: row.created_by,
   };
 }
@@ -155,6 +158,32 @@ export class SupabaseAppointmentRepository implements IAppointmentRepository {
     }
 
     return fromRow(data as AppointmentRow);
+  }
+
+  async findDueReminders(from: Date, to: Date): Promise<AppointmentRecord[]> {
+    const { data, error } = await this.db
+      .from(TABLE)
+      .select('*')
+      .eq('status', AppointmentStatus.CONFIRMED)
+      .is('reminder_sent_at', null)
+      .gte('starts_at', from.toISOString())
+      .lt('starts_at', to.toISOString());
+
+    if (error) {
+      throw new Error(`Error consultando recordatorios: ${error.message}`);
+    }
+    return (data ?? []).map((row) => fromRow(row as AppointmentRow));
+  }
+
+  async markReminderSent(id: string, at: Date): Promise<void> {
+    const { error } = await this.db
+      .from(TABLE)
+      .update({ reminder_sent_at: at.toISOString() })
+      .eq('id', id);
+
+    if (error) {
+      throw new Error(`Error marcando el recordatorio: ${error.message}`);
+    }
   }
 
   async findAgenda(veterinaryId: string, filter: AgendaFilter): Promise<AppointmentRecord[]> {

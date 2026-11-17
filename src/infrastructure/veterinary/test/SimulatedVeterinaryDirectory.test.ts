@@ -106,7 +106,7 @@ describe('SimulatedPetAccessProvider', () => {
   const pets = new SimulatedPetAccessProvider(seed);
 
   it('Toby tiene dueño con app', async () => {
-    await expect(pets.getPet(TOBY)).resolves.toEqual({ petId: TOBY, ownerUserId: OWNER });
+    await expect(pets.getPet(TOBY)).resolves.toEqual({ petId: TOBY, name: 'Toby', ownerUserId: OWNER });
   });
 
   it('una mascota sin dueño con app devuelve ownerUserId null', async () => {

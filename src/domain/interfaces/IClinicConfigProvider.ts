@@ -2,6 +2,8 @@
 export interface ClinicConfig {
   veterinaryId: string;
   name: string;
+  address: string | null;
+  phone: string | null;
   status: 'ACTIVE' | 'INACTIVE';
   allowOnlineBooking: boolean;
   bookingRequiresConfirmation: boolean;

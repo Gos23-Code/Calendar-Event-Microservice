@@ -37,7 +37,7 @@ export class SimulatedPetAccessProvider implements IPetAccessProvider {
 
   async getPet(petId: string): Promise<PetInfo | null> {
     const pet = this.seed.pets.find((p) => p.petId === petId);
-    return pet ? { petId: pet.petId, ownerUserId: pet.ownerUserId } : null;
+    return pet ? { petId: pet.petId, name: pet.name, ownerUserId: pet.ownerUserId } : null;
   }
 
   async isSharedWithClinic(petId: string, veterinaryId: string): Promise<boolean> {

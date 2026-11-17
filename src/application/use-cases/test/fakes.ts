@@ -109,6 +109,20 @@ export class InMemoryAppointmentRepository implements IAppointmentRepository {
       .filter((r) => r.ownerUserId === ownerUserId && r.startsAt >= from && r.startsAt < to)
       .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
   }
+
+  async findDueReminders(from: Date, to: Date): Promise<AppointmentRecord[]> {
+    return this.rows.filter(
+      (r) =>
+        r.status === AppointmentStatus.CONFIRMED &&
+        r.reminderSentAt === null &&
+        r.startsAt >= from &&
+        r.startsAt < to
+    );
+  }
+
+  async markReminderSent(id: string, at: Date): Promise<void> {
+    this.rows = this.rows.map((r) => (r.id === id ? { ...r, reminderSentAt: at } : r));
+  }
 }
 
 export function makeRecord(overrides: Partial<AppointmentRecord> = {}): AppointmentRecord {
@@ -129,6 +143,7 @@ export function makeRecord(overrides: Partial<AppointmentRecord> = {}): Appointm
     notes: null,
     cancellationReason: null,
     cancelledBy: null,
+    reminderSentAt: null,
     createdBy: CLINIC_USER,
     ...overrides,
   };
@@ -137,6 +152,8 @@ export function makeRecord(overrides: Partial<AppointmentRecord> = {}): Appointm
 const DEFAULT_CONFIG: ClinicConfig = {
   veterinaryId: VET,
   name: 'Clínica Patitas',
+  address: 'Calle 1 # 2-3, Bogotá',
+  phone: '+573000000000',
   status: 'ACTIVE',
   allowOnlineBooking: true,
   bookingRequiresConfirmation: false,
@@ -167,9 +184,9 @@ export function makeDeps(options: FakeOptions = {}) {
     options.config === null ? null : { ...DEFAULT_CONFIG, ...(options.config ?? {}) };
 
   const pets: Record<string, PetInfo> = {
-    [PET]: { petId: PET, ownerUserId: OWNER },
-    [PET_OTHER_OWNER]: { petId: PET_OTHER_OWNER, ownerUserId: OTHER_OWNER },
-    [PET_NO_APP]: { petId: PET_NO_APP, ownerUserId: null },
+    [PET]: { petId: PET, name: 'Toby', ownerUserId: OWNER },
+    [PET_OTHER_OWNER]: { petId: PET_OTHER_OWNER, name: 'Max', ownerUserId: OTHER_OWNER },
+    [PET_NO_APP]: { petId: PET_NO_APP, name: 'Nube', ownerUserId: null },
   };
 
   const services: Record<string, ServiceInfo> = {

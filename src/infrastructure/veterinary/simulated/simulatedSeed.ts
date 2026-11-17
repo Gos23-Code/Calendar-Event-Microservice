@@ -12,6 +12,7 @@ export interface SeedService {
 
 export interface SeedPet {
   petId: string;
+  name: string;
   ownerUserId: string | null;
 }
 
@@ -25,6 +26,8 @@ export interface SimulatedSeed {
   clinicName: string;
   ownerUserId: string;
   clinic: {
+    address: string | null;
+    phone: string | null;
     status: 'ACTIVE' | 'INACTIVE';
     allowOnlineBooking: boolean;
     bookingRequiresConfirmation: boolean;

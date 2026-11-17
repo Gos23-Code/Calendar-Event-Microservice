@@ -1,0 +1,87 @@
+{
+  "info": {
+    "_postman_id": "e4f5a6b7-d8e9-4f0a-9b1c-2d3e4f5a6b7c",
+    "name": "Calendar - Recordatorios de citas (job)",
+    "description": "Job interno de recordatorios de citas (Fase 4). Solo lo llama el scheduler, con la clave interna.\n\nAntes de correr:\n- Llena la variable internalApiKey con el valor de INTERNAL_API_KEY de .env.local.\n- Local: EVENTS_ENABLED no está en true, así que el job responde enabled: false y no publica nada. Es lo esperado en local.\n- Para ver recordatorios salir: EVENTS_ENABLED=true y VET_APPOINTMENTS_TOPIC en .env.local, y citas CONFIRMED que empiecen entre 23 y 24 h. Eso publica en Pub/Sub de verdad: no lo hagas en un entorno compartido.\n\nEl job es idempotente: correrlo dos veces no repite recordatorios (reminder_sent_at).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api" },
+    { "key": "internalApiKey", "value": "", "description": "Igual a INTERNAL_API_KEY de .env.local." }
+  ],
+  "item": [
+    {
+      "name": "1. Sin clave interna (401 INVALID_INTERNAL_KEY)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/internal/jobs/appointments/reminders",
+          "host": ["{{baseUrl}}"],
+          "path": ["internal", "jobs", "appointments", "reminders"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('401', () => pm.response.to.have.status(401));",
+              "pm.test('INVALID_INTERNAL_KEY', () => pm.expect(pm.response.json().code).to.eql('INVALID_INTERNAL_KEY'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Con clave interna (200 con el resultado del job)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "X-Internal-Api-Key", "value": "{{internalApiKey}}" }],
+        "url": {
+          "raw": "{{baseUrl}}/internal/jobs/appointments/reminders",
+          "host": ["{{baseUrl}}"],
+          "path": ["internal", "jobs", "appointments", "reminders"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "pm.test('Resultado con enabled, checked, sent, skipped y failed', () => pm.expect(b).to.have.all.keys('enabled', 'checked', 'sent', 'skipped', 'failed'));",
+              "pm.test('Con EVENTS_ENABLED apagado no revisa ni envía nada', () => { if (!b.enabled) { pm.expect(b.sent).to.eql(0); } });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Clave incorrecta (401)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "X-Internal-Api-Key", "value": "clave-que-no-es" }],
+        "url": {
+          "raw": "{{baseUrl}}/internal/jobs/appointments/reminders",
+          "host": ["{{baseUrl}}"],
+          "path": ["internal", "jobs", "appointments", "reminders"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

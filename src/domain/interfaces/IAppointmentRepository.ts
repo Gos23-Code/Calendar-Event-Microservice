@@ -29,6 +29,10 @@ export interface IAppointmentRepository {
   insert(record: AppointmentRecord): Promise<AppointmentRecord>;
   // Actualiza la cita. Lanza AppointmentConflictError si la nueva franja choca.
   update(record: AppointmentRecord): Promise<AppointmentRecord>;
+  // Citas CONFIRMED que empiezan en [from, to) y aún no tienen recordatorio enviado.
+  findDueReminders(from: Date, to: Date): Promise<AppointmentRecord[]>;
+  // Marca el recordatorio como enviado en el instante dado.
+  markReminderSent(id: string, at: Date): Promise<void>;
   // Agenda de una clínica, ordenada por hora de inicio.
   findAgenda(veterinaryId: string, filter: AgendaFilter): Promise<AppointmentRecord[]>;
   // Citas de un dueño en todas las clínicas, ordenadas por hora de inicio.

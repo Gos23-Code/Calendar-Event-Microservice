@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { readRequiredEnv } from '../config/env';
 import { createJwtVerifier, getJwtVerifierConfig } from '../auth/jwtVerifier';
+import { getInternalApiKey } from '../auth/internalApiKey';
 import { SupabaseAppointmentRepository } from '../database/supabase/SupabaseAppointmentRepository';
 import { SimulatedScheduleRulesProvider } from '../veterinary/SimulatedScheduleRulesProvider';
 import { VeterinaryAccessClient } from '../veterinary/VeterinaryAccessClient';
@@ -11,6 +12,8 @@ import {
 } from '../veterinary/simulated/SimulatedVeterinaryDirectory';
 import { SimulatedStaffDirectory } from '../veterinary/simulated/SimulatedStaffDirectory';
 import { loadSimulatedSeed } from '../veterinary/simulated/simulatedSeed';
+import { PubSubAppointmentPublisher, appointmentsTopicName } from '../events/PubSubAppointmentPublisher';
+import { pubSubClient } from '../pubsub/client';
 import { CreateClinicAppointmentUseCase } from '@/application/use-cases/CreateClinicAppointmentUseCase';
 import { RequestAppointmentUseCase } from '@/application/use-cases/RequestAppointmentUseCase';
 import { AppointmentLifecycleUseCase } from '@/application/use-cases/AppointmentLifecycleUseCase';
@@ -18,6 +21,9 @@ import {
   ClinicAgendaUseCase,
   OwnerAppointmentsUseCase,
 } from '@/application/use-cases/AppointmentQueriesUseCase';
+import { SendAppointmentRemindersUseCase } from '@/application/use-cases/SendAppointmentRemindersUseCase';
+import { AppointmentNotifier } from '@/application/services/AppointmentNotifier';
+import { IAppointmentEventPublisher } from '@/domain/interfaces/IAppointmentEventPublisher';
 import { Principal } from '@/domain/entities/Principal';
 
 // Composición de dependencias del servidor. Este archivo es el ÚNICO que conoce la clave
@@ -32,6 +38,8 @@ export interface AppointmentHttpDeps {
   lifecycle: AppointmentLifecycleUseCase;
   agenda: ClinicAgendaUseCase;
   owner: OwnerAppointmentsUseCase;
+  reminders: SendAppointmentRemindersUseCase;
+  internalApiKey: string;
 }
 
 // supabase-js necesita la URL base. Si viene con /rest/v1 (como la URL de la API REST), se quita.
@@ -47,6 +55,23 @@ export function createServiceSupabaseClient(env: Record<string, string | undefin
   });
 }
 
+// EVENTS_ENABLED=true activa la publicación real en Pub/Sub. Por defecto está apagado.
+export function eventsEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return (env.EVENTS_ENABLED ?? '').trim() === 'true';
+}
+
+function buildPublisher(env: Record<string, string | undefined>): IAppointmentEventPublisher {
+  if (eventsEnabled(env)) {
+    return new PubSubAppointmentPublisher(pubSubClient, appointmentsTopicName(env));
+  }
+  // Con los eventos apagados el notificador no llama al publicador; este stub solo existe por tipo.
+  return {
+    publish: async () => {
+      throw new Error('Eventos de cita deshabilitados (EVENTS_ENABLED no es true)');
+    },
+  };
+}
+
 let cached: AppointmentHttpDeps | null = null;
 
 // Construye las dependencias una sola vez, al primer request (no al importar el módulo,
@@ -56,6 +81,7 @@ export function getAppointmentHttpDeps(env: Record<string, string | undefined> =
 
   const db = createServiceSupabaseClient(env);
   const seed = loadSimulatedSeed(env);
+  const internalApiKey = getInternalApiKey(env);
 
   const shared = {
     rules: new SimulatedScheduleRulesProvider(),
@@ -69,15 +95,24 @@ export function getAppointmentHttpDeps(env: Record<string, string | undefined> =
 
   const access = new VeterinaryAccessClient({
     baseUrl: readRequiredEnv('VETERINARY_SERVICE_URL', env),
-    apiKey: readRequiredEnv('INTERNAL_API_KEY', env),
+    apiKey: internalApiKey,
   });
 
   const staff = new SimulatedStaffDirectory(seed);
 
+  const notifier = new AppointmentNotifier({
+    publisher: buildPublisher(env),
+    clinicConfig: shared.clinicConfig,
+    pets: shared.pets,
+    newId: shared.newId,
+    now: shared.now,
+    enabled: eventsEnabled(env),
+  });
+
   cached = {
     authenticate: createJwtVerifier(getJwtVerifierConfig(env)),
-    clinicUseCase: new CreateClinicAppointmentUseCase({ ...shared, access }),
-    requestUseCase: new RequestAppointmentUseCase(shared),
+    clinicUseCase: new CreateClinicAppointmentUseCase({ ...shared, access, notifier }),
+    requestUseCase: new RequestAppointmentUseCase({ ...shared, notifier }),
     lifecycle: new AppointmentLifecycleUseCase({
       appointments: shared.appointments,
       access,
@@ -85,9 +120,16 @@ export function getAppointmentHttpDeps(env: Record<string, string | undefined> =
       rules: shared.rules,
       catalog: shared.catalog,
       now: shared.now,
+      notifier,
     }),
     agenda: new ClinicAgendaUseCase({ appointments: shared.appointments, staff }),
     owner: new OwnerAppointmentsUseCase({ appointments: shared.appointments, clinicConfig: shared.clinicConfig }),
+    reminders: new SendAppointmentRemindersUseCase({
+      appointments: shared.appointments,
+      notifier,
+      now: shared.now,
+    }),
+    internalApiKey,
   };
   return cached;
 }

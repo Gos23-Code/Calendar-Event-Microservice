@@ -9,6 +9,9 @@ import { IPetAccessProvider } from '@/domain/interfaces/IPetAccessProvider';
 import { IScheduleRulesProvider } from '@/domain/interfaces/IScheduleRulesProvider';
 import { IServiceCatalog } from '@/domain/interfaces/IServiceCatalog';
 import { findAvailableSlot } from '@/application/services/findAvailableSlot';
+import { AppointmentNotifier } from '@/application/services/AppointmentNotifier';
+import { AppointmentEventType } from '@/domain/enums/AppointmentEventType';
+import { AppointmentRecord } from '@/domain/entities/Appointment';
 
 // Anticipación mínima para reservas desde la app (CAL-04)
 export const APP_MIN_LEAD_MINUTES = 60;
@@ -21,6 +24,7 @@ export interface RequestAppointmentDeps {
   clinicConfig: IClinicConfigProvider;
   newId: () => string;
   now: () => Date;
+  notifier?: AppointmentNotifier; // eventos de cita (Fase 4); opcional
 }
 
 export interface RequestAppointmentInput {
@@ -102,16 +106,26 @@ export class RequestAppointmentUseCase {
       notes: input.notes ?? null,
       cancellationReason: null,
       cancelledBy: null,
+      reminderSentAt: null,
       createdBy: principal.userId,
     };
 
+    let saved: AppointmentRecord;
     try {
-      return await this.deps.appointments.insert(record);
+      saved = await this.deps.appointments.insert(record);
     } catch (error) {
       if (error instanceof AppointmentConflictError) {
         throw new AppError(409, 'SLOT_UNAVAILABLE', 'La franja solicitada no está disponible');
       }
       throw error;
     }
+
+    // Pendiente: avisa a la clínica. Confirmada automáticamente: avisa al dueño.
+    const eventType =
+      saved.status === AppointmentStatus.REQUESTED
+        ? AppointmentEventType.REQUESTED
+        : AppointmentEventType.CONFIRMED;
+    await this.deps.notifier?.notify(eventType, saved, 'OWNER');
+    return saved;
   }
 }

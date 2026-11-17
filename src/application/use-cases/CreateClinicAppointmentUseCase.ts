@@ -11,6 +11,8 @@ import { IServiceCatalog } from '@/domain/interfaces/IServiceCatalog';
 import { Principal } from '@/domain/entities/Principal';
 import { assertSameVeterinary } from '@/domain/services/tenant';
 import { findAvailableSlot } from '@/application/services/findAvailableSlot';
+import { AppointmentNotifier } from '@/application/services/AppointmentNotifier';
+import { AppointmentEventType } from '@/domain/enums/AppointmentEventType';
 
 export const APPOINTMENT_MANAGE = 'APPOINTMENT_MANAGE';
 
@@ -23,6 +25,7 @@ export interface CreateClinicAppointmentDeps {
   clinicConfig: IClinicConfigProvider;
   newId: () => string;
   now: () => Date;
+  notifier?: AppointmentNotifier; // eventos de cita (Fase 4); opcional
 }
 
 export interface CreateClinicAppointmentInput {
@@ -112,16 +115,22 @@ export class CreateClinicAppointmentUseCase {
       notes: input.notes ?? null,
       cancellationReason: null,
       cancelledBy: null,
+      reminderSentAt: null,
       createdBy: principal.userId,
     };
 
+    let saved: AppointmentRecord;
     try {
-      return await this.deps.appointments.insert(record);
+      saved = await this.deps.appointments.insert(record);
     } catch (error) {
       if (error instanceof AppointmentConflictError) {
         throw new AppError(409, 'SLOT_UNAVAILABLE', 'La franja solicitada no está disponible');
       }
       throw error;
     }
+
+    // La clínica crea la cita ya confirmada: avisa al dueño (si tiene app)
+    await this.deps.notifier?.notify(AppointmentEventType.CONFIRMED, saved);
+    return saved;
   }
 }

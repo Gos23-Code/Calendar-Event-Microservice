@@ -48,6 +48,7 @@ const RECORD: AppointmentRecord = {
   notes: 'Se lame la herida',
   cancellationReason: null,
   cancelledBy: null,
+  reminderSentAt: null,
   createdBy: 'owner-1',
 };
 
@@ -68,6 +69,7 @@ const ROW: AppointmentRow = {
   notes: 'Se lame la herida',
   cancellation_reason: null,
   cancelled_by: null,
+  reminder_sent_at: null,
   created_by: 'owner-1',
 };
 

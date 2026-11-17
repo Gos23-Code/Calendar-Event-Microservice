@@ -2,6 +2,7 @@
 // (pendiente de definir, dependencia 6 de la Fase 5).
 export interface PetInfo {
   petId: string;
+  name: string;
   ownerUserId: string | null; // null = el dueño no tiene app
 }
 

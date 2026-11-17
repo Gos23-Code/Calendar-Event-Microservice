@@ -9,6 +9,8 @@ import {
   ClinicAgendaUseCase,
   OwnerAppointmentsUseCase,
 } from '@/application/use-cases/AppointmentQueriesUseCase';
+import { SendAppointmentRemindersUseCase } from '@/application/use-cases/SendAppointmentRemindersUseCase';
+import { isValidInternalApiKey } from '../auth/internalApiKey';
 import { toErrorResponse } from './errorBody';
 
 // Handlers HTTP sin dependencia de Next: reciben lo que llega y devuelven { status, body }.
@@ -308,6 +310,27 @@ export async function handleOwnerAppointments(
         appointments: views.map((v) => ({ ...toAppointmentResponse(v.appointment), clinicName: v.clinicName })),
       },
     };
+  } catch (error) {
+    return failure(error, req.now);
+  }
+}
+
+export interface JobRequest {
+  internalApiKey: string | null | undefined; // header X-Internal-Api-Key
+  now: Date;
+}
+
+// POST /api/internal/jobs/appointments/reminders → 200. Solo lo llama el scheduler, con la clave interna.
+export async function handleSendReminders(
+  req: JobRequest,
+  deps: { expectedKey: string; job: SendAppointmentRemindersUseCase }
+): Promise<HttpResult> {
+  try {
+    if (!isValidInternalApiKey(req.internalApiKey, deps.expectedKey)) {
+      throw new AppError(401, 'INVALID_INTERNAL_KEY', 'Clave interna inválida o ausente');
+    }
+    const result = await deps.job.run();
+    return { status: 200, body: result };
   } catch (error) {
     return failure(error, req.now);
   }

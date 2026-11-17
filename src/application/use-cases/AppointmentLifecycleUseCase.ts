@@ -1,5 +1,7 @@
 import { AppointmentRecord } from '@/domain/entities/Appointment';
+import { Actor } from '@/domain/entities/AppointmentEvent';
 import { Principal } from '@/domain/entities/Principal';
+import { AppointmentEventType } from '@/domain/enums/AppointmentEventType';
 import { AppointmentStatus } from '@/domain/enums/AppointmentStatus';
 import { AppError } from '@/domain/errors/AppError';
 import { AppointmentConflictError, IAppointmentRepository } from '@/domain/interfaces/IAppointmentRepository';
@@ -11,6 +13,7 @@ import { noShowAllowedAt, ownerCanCancelAt } from '@/domain/services/appointment
 import { assertTransition, InvalidAppointmentTransitionError } from '@/domain/services/appointmentStateMachine';
 import { assertSameVeterinary } from '@/domain/services/tenant';
 import { findAvailableSlot } from '@/application/services/findAvailableSlot';
+import { AppointmentNotifier } from '@/application/services/AppointmentNotifier';
 import { APPOINTMENT_MANAGE } from './CreateClinicAppointmentUseCase';
 import { APP_MIN_LEAD_MINUTES } from './RequestAppointmentUseCase';
 
@@ -21,29 +24,40 @@ export interface LifecycleDeps {
   rules: IScheduleRulesProvider;
   catalog: IServiceCatalog;
   now: () => Date;
+  notifier?: AppointmentNotifier; // eventos de cita (Fase 4); opcional
+}
+
+interface Announcement {
+  type: AppointmentEventType;
+  by?: Actor;
 }
 
 // Acciones sobre una cita ya creada (CALENDAR_SERVICE_CHANGES.md, CAL-03 y CAL-05).
 // Cada método: 1) quién lo pide, 2) la cita existe en esa clínica, 3) la transición es válida,
-// 4) las reglas de tiempo, 5) se guarda.
+// 4) las reglas de tiempo, 5) se guarda y se notifica.
 export class AppointmentLifecycleUseCase {
   constructor(private readonly deps: LifecycleDeps) {}
 
   // PATCH .../confirm — clínica. REQUESTED → CONFIRMED
   async confirm(principal: Principal, veterinaryId: string, id: string): Promise<AppointmentRecord> {
     const appt = await this.clinicAction(principal, veterinaryId, id);
-    return this.save({ ...this.transition(appt, AppointmentStatus.CONFIRMED) });
+    return this.save(this.transition(appt, AppointmentStatus.CONFIRMED), {
+      type: AppointmentEventType.CONFIRMED,
+    });
   }
 
   // PATCH .../reject — clínica, con motivo. REQUESTED → REJECTED
   async reject(principal: Principal, veterinaryId: string, id: string, reason: string): Promise<AppointmentRecord> {
     const motive = requireReason(reason);
     const appt = await this.clinicAction(principal, veterinaryId, id);
-    return this.save({
-      ...this.transition(appt, AppointmentStatus.REJECTED),
-      cancellationReason: motive,
-      cancelledBy: 'CLINIC',
-    });
+    return this.save(
+      {
+        ...this.transition(appt, AppointmentStatus.REJECTED),
+        cancellationReason: motive,
+        cancelledBy: 'CLINIC',
+      },
+      { type: AppointmentEventType.REJECTED }
+    );
   }
 
   // PATCH .../cancel — dueño (con plazo) o clínica. REQUESTED|CONFIRMED → CANCELLED
@@ -56,22 +70,28 @@ export class AppointmentLifecycleUseCase {
     if (principal.kind === 'USER') {
       const appt = await this.ownerAction(principal, veterinaryId, id);
       await this.assertOwnerWindow(veterinaryId, appt);
-      return this.save({
-        ...this.transition(appt, AppointmentStatus.CANCELLED),
-        cancellationReason: reason,
-        cancelledBy: 'OWNER',
-      });
+      return this.save(
+        {
+          ...this.transition(appt, AppointmentStatus.CANCELLED),
+          cancellationReason: reason,
+          cancelledBy: 'OWNER',
+        },
+        { type: AppointmentEventType.CANCELLED, by: 'OWNER' }
+      );
     }
 
     const appt = await this.clinicAction(principal, veterinaryId, id);
-    return this.save({
-      ...this.transition(appt, AppointmentStatus.CANCELLED),
-      cancellationReason: reason,
-      cancelledBy: 'CLINIC',
-    });
+    return this.save(
+      {
+        ...this.transition(appt, AppointmentStatus.CANCELLED),
+        cancellationReason: reason,
+        cancelledBy: 'CLINIC',
+      },
+      { type: AppointmentEventType.CANCELLED, by: 'CLINIC' }
+    );
   }
 
-  // PATCH .../check-in — clínica. CONFIRMED → CHECKED_IN
+  // PATCH .../check-in — clínica. CONFIRMED → CHECKED_IN (no genera evento)
   async checkIn(principal: Principal, veterinaryId: string, id: string): Promise<AppointmentRecord> {
     const appt = await this.clinicAction(principal, veterinaryId, id);
     return this.save(this.transition(appt, AppointmentStatus.CHECKED_IN));
@@ -80,10 +100,12 @@ export class AppointmentLifecycleUseCase {
   // PATCH .../complete — clínica. CHECKED_IN → COMPLETED
   async complete(principal: Principal, veterinaryId: string, id: string): Promise<AppointmentRecord> {
     const appt = await this.clinicAction(principal, veterinaryId, id);
-    return this.save(this.transition(appt, AppointmentStatus.COMPLETED));
+    return this.save(this.transition(appt, AppointmentStatus.COMPLETED), {
+      type: AppointmentEventType.COMPLETED,
+    });
   }
 
-  // PATCH .../no-show — clínica, solo después de starts_at. CONFIRMED → NO_SHOW
+  // PATCH .../no-show — clínica, solo después de starts_at. CONFIRMED → NO_SHOW (no genera evento)
   async noShow(principal: Principal, veterinaryId: string, id: string): Promise<AppointmentRecord> {
     const appt = await this.clinicAction(principal, veterinaryId, id);
     if (!noShowAllowedAt(appt.startsAt, this.deps.now())) {
@@ -93,6 +115,7 @@ export class AppointmentLifecycleUseCase {
   }
 
   // PATCH .../reschedule — clínica o dueño. Revalida disponibilidad; mantiene el empleado.
+  // Reprogramar reinicia el recordatorio, porque la cita ya tiene otra hora.
   async reschedule(
     principal: Principal,
     veterinaryId: string,
@@ -130,12 +153,16 @@ export class AppointmentLifecycleUseCase {
       }
     );
 
-    return this.save({
-      ...appt,
-      startsAt: slot.startsAt,
-      endsAt: slot.endsAt,
-      employeeId: slot.employeeId,
-    });
+    return this.save(
+      {
+        ...appt,
+        startsAt: slot.startsAt,
+        endsAt: slot.endsAt,
+        employeeId: slot.employeeId,
+        reminderSentAt: null,
+      },
+      { type: AppointmentEventType.RESCHEDULED, by: isOwner ? 'OWNER' : 'CLINIC' }
+    );
   }
 
   // --- helpers ---
@@ -174,7 +201,7 @@ export class AppointmentLifecycleUseCase {
     return appt;
   }
 
-  // Plazo del dueño: cancelationMinHours de la clínica.
+  // Plazo del dueño: cancellationMinHours de la clínica.
   private async assertOwnerWindow(veterinaryId: string, appt: AppointmentRecord): Promise<void> {
     const config = await this.deps.clinicConfig.get(veterinaryId);
     if (!config) {
@@ -205,15 +232,22 @@ export class AppointmentLifecycleUseCase {
     return { ...appt, status: to };
   }
 
-  private async save(next: AppointmentRecord): Promise<AppointmentRecord> {
+  // Guarda la cita y, si hay evento que anunciar, notifica. Un fallo al notificar no revierte el cambio.
+  private async save(next: AppointmentRecord, announcement?: Announcement): Promise<AppointmentRecord> {
+    let saved: AppointmentRecord;
     try {
-      return await this.deps.appointments.update(next);
+      saved = await this.deps.appointments.update(next);
     } catch (error) {
       if (error instanceof AppointmentConflictError) {
         throw new AppError(409, 'SLOT_UNAVAILABLE', 'La franja solicitada no está disponible');
       }
       throw error;
     }
+
+    if (announcement) {
+      await this.deps.notifier?.notify(announcement.type, saved, announcement.by);
+    }
+    return saved;
   }
 }
 

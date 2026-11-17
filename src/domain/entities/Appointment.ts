@@ -21,5 +21,6 @@ export interface AppointmentRecord {
   notes: string | null;
   cancellationReason: string | null; // motivo de rechazo o cancelación
   cancelledBy: CancelledBy | null;
+  reminderSentAt: Date | null; // evita repetir el recordatorio de 24 h
   createdBy: string;
 }
