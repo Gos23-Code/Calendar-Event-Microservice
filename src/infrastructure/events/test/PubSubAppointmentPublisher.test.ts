@@ -45,7 +45,7 @@ describe('appointmentsTopicName', () => {
 
 describe('PubSubAppointmentPublisher', () => {
   it('publica en el topic indicado, con el sobre como JSON y eventType en los atributos', async () => {
-    const publishMessage = jest.fn(async () => 'msg-id');
+    const publishMessage = jest.fn(async (_msg: { data: Buffer; attributes: Record<string, string> }) => 'msg-id');
     const topic = jest.fn(() => ({ publishMessage }));
     const publisher = new PubSubAppointmentPublisher({ topic }, 'veterinary-appointments');
 

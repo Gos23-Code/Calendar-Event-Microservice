@@ -6,12 +6,13 @@ import { AppError } from '@/domain/errors/AppError';
 import { IAppointmentRepository, AppointmentConflictError } from '@/domain/interfaces/IAppointmentRepository';
 import { IClinicConfigProvider } from '@/domain/interfaces/IClinicConfigProvider';
 import { IPetAccessProvider } from '@/domain/interfaces/IPetAccessProvider';
+import { IPetOwnershipProvider } from '@/domain/interfaces/IPetOwnershipProvider';
+import { IPetSharingProvider } from '@/domain/interfaces/IPetSharingProvider';
 import { IScheduleRulesProvider } from '@/domain/interfaces/IScheduleRulesProvider';
 import { IServiceCatalog } from '@/domain/interfaces/IServiceCatalog';
 import { findAvailableSlot } from '@/application/services/findAvailableSlot';
 import { AppointmentNotifier } from '@/application/services/AppointmentNotifier';
 import { AppointmentEventType } from '@/domain/enums/AppointmentEventType';
-import { AppointmentRecord } from '@/domain/entities/Appointment';
 
 // Anticipación mínima para reservas desde la app (CAL-04)
 export const APP_MIN_LEAD_MINUTES = 60;
@@ -25,6 +26,8 @@ export interface RequestAppointmentDeps {
   newId: () => string;
   now: () => Date;
   notifier?: AppointmentNotifier; // eventos de cita (Fase 4); opcional
+  ownership?: IPetOwnershipProvider; // dueño de la mascota según Pets; opcional (sin él, usa la semilla)
+  sharing?: IPetSharingProvider; // mascota compartida con la clínica según Veterinary; opcional (sin él, usa la semilla)
 }
 
 export interface RequestAppointmentInput {
@@ -59,11 +62,16 @@ export class RequestAppointmentUseCase {
 
     // 2. Mascota del dueño y compartida con la clínica.
     // Mascota inexistente, ajena o sin dueño con app → la misma respuesta, para no revelar cuáles existen.
-    const pet = await this.deps.pets.getPet(input.petId);
-    if (!pet || pet.ownerUserId !== principal.userId) {
+    // Si hay proveedor de Pets, la propiedad la decide Pets; si no, la semilla (solo pruebas).
+    const owns = this.deps.ownership
+      ? await this.deps.ownership.isOwner(input.petId, principal.userId)
+      : (await this.deps.pets.getPet(input.petId))?.ownerUserId === principal.userId;
+    if (!owns) {
       throw new AppError(403, 'PET_NOT_OWNED', 'La mascota no es tuya');
     }
-    const shared = await this.deps.pets.isSharedWithClinic(input.petId, input.veterinaryId);
+    const shared = this.deps.sharing
+      ? await this.deps.sharing.isSharedWithClinic(input.veterinaryId, input.petId)
+      : await this.deps.pets.isSharedWithClinic(input.petId, input.veterinaryId);
     if (!shared) {
       throw new AppError(403, 'PET_NOT_SHARED', 'La mascota no está compartida con esta clínica');
     }

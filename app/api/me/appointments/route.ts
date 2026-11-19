@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     const deps = getAppointmentHttpDeps();
     const result = await handleOwnerAppointments(
       { authorization: request.headers.get('authorization'), params: request.nextUrl.searchParams, now },
-      { authenticate: deps.authenticate, owner: deps.owner }
+      { authenticate: deps.authenticate, owner: deps.owner, pets: deps.petDirectory }
     );
     return NextResponse.json(result.body, { status: result.status });
   } catch (error) {

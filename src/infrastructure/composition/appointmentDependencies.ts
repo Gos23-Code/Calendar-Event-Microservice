@@ -5,6 +5,17 @@ import { getInternalApiKey } from '../auth/internalApiKey';
 import { SupabaseAppointmentRepository } from '../database/supabase/SupabaseAppointmentRepository';
 import { SimulatedScheduleRulesProvider } from '../veterinary/SimulatedScheduleRulesProvider';
 import { VeterinaryAccessClient } from '../veterinary/VeterinaryAccessClient';
+import { PetsClient } from '../pets/PetsClient';
+import { IPetDirectory } from '@/domain/interfaces/IPetDirectory';
+import { VeterinarySharingChecker } from '../veterinary/VeterinarySharingChecker';
+
+// Timeout opcional por variable de entorno (ms). Sin valor válido, cada cliente usa su default (3 s,
+// el del contrato). Sirve para entornos con Cloud Run en escala a cero, donde el arranque en frío tarda más.
+function optionalTimeoutMs(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
 import {
   SimulatedClinicConfigProvider,
   SimulatedPetAccessProvider,
@@ -40,6 +51,7 @@ export interface AppointmentHttpDeps {
   owner: OwnerAppointmentsUseCase;
   reminders: SendAppointmentRemindersUseCase;
   internalApiKey: string;
+  petDirectory: IPetDirectory; // nombres de mascotas desde Pets (petName en cada cita)
 }
 
 // supabase-js necesita la URL base. Si viene con /rest/v1 (como la URL de la API REST), se quita.
@@ -96,6 +108,18 @@ export function getAppointmentHttpDeps(env: Record<string, string | undefined> =
   const access = new VeterinaryAccessClient({
     baseUrl: readRequiredEnv('VETERINARY_SERVICE_URL', env),
     apiKey: internalApiKey,
+    timeoutMs: optionalTimeoutMs(env.VETERINARY_TIMEOUT_MS),
+  });
+
+  // Compartición con la clínica: provisional, vía Veterinary con un empleado activo como sonda (SIM_CLINIC_USER_ID).
+  const sharing = env.SIM_CLINIC_USER_ID
+    ? new VeterinarySharingChecker(access, env.SIM_CLINIC_USER_ID)
+    : undefined;
+
+  const pets = new PetsClient({
+    baseUrl: readRequiredEnv('PETS_SERVICE_URL', env),
+    apiKey: internalApiKey,
+    timeoutMs: optionalTimeoutMs(env.PETS_TIMEOUT_MS),
   });
 
   const staff = new SimulatedStaffDirectory(seed);
@@ -112,7 +136,7 @@ export function getAppointmentHttpDeps(env: Record<string, string | undefined> =
   cached = {
     authenticate: createJwtVerifier(getJwtVerifierConfig(env)),
     clinicUseCase: new CreateClinicAppointmentUseCase({ ...shared, access, notifier }),
-    requestUseCase: new RequestAppointmentUseCase({ ...shared, notifier }),
+    requestUseCase: new RequestAppointmentUseCase({ ...shared, notifier, ownership: pets, sharing }),
     lifecycle: new AppointmentLifecycleUseCase({
       appointments: shared.appointments,
       access,
@@ -130,6 +154,7 @@ export function getAppointmentHttpDeps(env: Record<string, string | undefined> =
       now: shared.now,
     }),
     internalApiKey,
+    petDirectory: pets,
   };
   return cached;
 }

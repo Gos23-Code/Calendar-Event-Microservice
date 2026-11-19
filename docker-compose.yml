@@ -19,6 +19,24 @@ services:
       # Contenedor persistente (no escala a cero) => el cron en proceso es seguro aquí
       ENABLE_INTERNAL_REMINDER_CRON: "true"
       GOOGLE_APPLICATION_CREDENTIALS: /app/secrets/gcp-key.json
+      # Clave de servicio de Supabase (solo servidor). Sin ella, citas y job responden 500.
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      # Autenticación JWT (CAL-01) y servicios internos (CAL-02)
+      JWT_JWKS_URL: ${JWT_JWKS_URL}
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      VETERINARY_SERVICE_URL: ${VETERINARY_SERVICE_URL}
+      PETS_SERVICE_URL: ${PETS_SERVICE_URL}
+      # Timeouts (ms) de llamadas a Pets y Veterinary. Vacío = 3 s. Subir si los servicios están en escala a cero.
+      PETS_TIMEOUT_MS: ${PETS_TIMEOUT_MS:-}
+      VETERINARY_TIMEOUT_MS: ${VETERINARY_TIMEOUT_MS:-}
+      EVENTS_ENABLED: ${EVENTS_ENABLED:-false}
+      VET_APPOINTMENTS_TOPIC: ${VET_APPOINTMENTS_TOPIC:-veterinary-appointments}
+      # Apuntan la demo de citas a la clínica y cuentas reales de pruebas (ver calendar_appointments-vet.md)
+      SIM_VET_ID: ${SIM_VET_ID:-}
+      SIM_OWNER_USER_ID: ${SIM_OWNER_USER_ID:-}
+      SIM_CLINIC_USER_ID: ${SIM_CLINIC_USER_ID:-}
     volumes:
       - ${GCP_KEY_FILE_PATH}:/app/secrets/gcp-key.json:ro
     networks:

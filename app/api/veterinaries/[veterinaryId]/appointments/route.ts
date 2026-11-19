@@ -17,7 +17,7 @@ export async function POST(
 
     const result = await handleCreateClinicAppointment(
       { authorization: request.headers.get('authorization'), veterinaryId, body, now },
-      { authenticate: deps.authenticate, useCase: deps.clinicUseCase }
+      { authenticate: deps.authenticate, useCase: deps.clinicUseCase, pets: deps.petDirectory }
     );
     return NextResponse.json(result.body, { status: result.status });
   } catch (error) {
@@ -45,7 +45,7 @@ export async function GET(
         params: request.nextUrl.searchParams,
         now,
       },
-      { authenticate: deps.authenticate, agenda: deps.agenda }
+      { authenticate: deps.authenticate, agenda: deps.agenda, pets: deps.petDirectory }
     );
     return NextResponse.json(result.body, { status: result.status });
   } catch (error) {

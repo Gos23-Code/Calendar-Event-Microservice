@@ -10,6 +10,7 @@ import {
   OwnerAppointmentsUseCase,
 } from '@/application/use-cases/AppointmentQueriesUseCase';
 import { SendAppointmentRemindersUseCase } from '@/application/use-cases/SendAppointmentRemindersUseCase';
+import { IPetDirectory } from '@/domain/interfaces/IPetDirectory';
 import { isValidInternalApiKey } from '../auth/internalApiKey';
 import { toErrorResponse } from './errorBody';
 
@@ -150,12 +151,13 @@ export function parseAgendaQuery(params: URLSearchParams) {
 // --- formato de respuesta ---
 
 // Forma JSON de la cita en las respuestas (camelCase, fechas ISO UTC).
-export function toAppointmentResponse(record: AppointmentRecord) {
+export function toAppointmentResponse(record: AppointmentRecord, petName: string | null = null) {
   return {
     id: record.id,
     veterinaryId: record.veterinaryId,
     employeeId: record.employeeId,
     petId: record.petId,
+    petName,
     ownerUserId: record.ownerUserId,
     serviceId: record.serviceId,
     serviceName: record.serviceName,
@@ -172,6 +174,20 @@ export function toAppointmentResponse(record: AppointmentRecord) {
   };
 }
 
+// Nombres de las mascotas de un conjunto de citas, en una sola llamada a Pets.
+// Si Pets no responde, el error (503) sube y la respuesta completa falla, como se acordó.
+async function petNamesFor(pets: IPetDirectory | undefined, records: AppointmentRecord[]): Promise<Map<string, string>> {
+  if (!pets || records.length === 0) return new Map();
+  const found = await pets.getPets(records.map((r) => r.petId));
+  return new Map([...found].map(([id, pet]) => [id, pet.name]));
+}
+
+// Una cita con el nombre de su mascota (usado por creación y por acciones PATCH).
+async function withPetName(record: AppointmentRecord, pets: IPetDirectory | undefined) {
+  const names = await petNamesFor(pets, [record]);
+  return toAppointmentResponse(record, names.get(record.petId) ?? null);
+}
+
 // --- handlers ---
 
 export interface HandlerRequest {
@@ -184,13 +200,13 @@ export interface HandlerRequest {
 // POST /api/veterinaries/{veterinaryId}/appointments (clínica) → 201
 export async function handleCreateClinicAppointment(
   req: HandlerRequest,
-  deps: { authenticate: Authenticate; useCase: CreateClinicAppointmentUseCase }
+  deps: { authenticate: Authenticate; useCase: CreateClinicAppointmentUseCase; pets?: IPetDirectory }
 ): Promise<HttpResult> {
   try {
     const principal = await deps.authenticate(req.authorization);
     const input = parseClinicBody(req.body);
     const record = await deps.useCase.execute(principal, { veterinaryId: req.veterinaryId, ...input });
-    return { status: 201, body: toAppointmentResponse(record) };
+    return { status: 201, body: await withPetName(record, deps.pets) };
   } catch (error) {
     return failure(error, req.now);
   }
@@ -199,13 +215,13 @@ export async function handleCreateClinicAppointment(
 // POST /api/veterinaries/{veterinaryId}/appointment-requests (dueño) → 201
 export async function handleRequestAppointment(
   req: HandlerRequest,
-  deps: { authenticate: Authenticate; useCase: RequestAppointmentUseCase }
+  deps: { authenticate: Authenticate; useCase: RequestAppointmentUseCase; pets?: IPetDirectory }
 ): Promise<HttpResult> {
   try {
     const principal = await deps.authenticate(req.authorization);
     const input = parseRequestBody(req.body);
     const record = await deps.useCase.execute(principal, { veterinaryId: req.veterinaryId, ...input });
-    return { status: 201, body: toAppointmentResponse(record) };
+    return { status: 201, body: await withPetName(record, deps.pets) };
   } catch (error) {
     return failure(error, req.now);
   }
@@ -223,7 +239,7 @@ export interface ActionRequest {
 // PATCH /api/veterinaries/{veterinaryId}/appointments/{appointmentId}/{action} → 200
 export async function handleAppointmentAction(
   req: ActionRequest,
-  deps: { authenticate: Authenticate; lifecycle: AppointmentLifecycleUseCase }
+  deps: { authenticate: Authenticate; lifecycle: AppointmentLifecycleUseCase; pets?: IPetDirectory }
 ): Promise<HttpResult> {
   try {
     if (!(APPOINTMENT_ACTIONS as readonly string[]).includes(req.action)) {
@@ -260,7 +276,7 @@ export async function handleAppointmentAction(
         record = await deps.lifecycle.reschedule(principal, vet, id, args.startsAt as Date);
         break;
     }
-    return { status: 200, body: toAppointmentResponse(record) };
+    return { status: 200, body: await withPetName(record, deps.pets) };
   } catch (error) {
     return failure(error, req.now);
   }
@@ -276,13 +292,17 @@ export interface AgendaRequest {
 // GET /api/veterinaries/{veterinaryId}/appointments?from=&to=&employeeId=&status= → 200
 export async function handleClinicAgenda(
   req: AgendaRequest,
-  deps: { authenticate: Authenticate; agenda: ClinicAgendaUseCase }
+  deps: { authenticate: Authenticate; agenda: ClinicAgendaUseCase; pets?: IPetDirectory }
 ): Promise<HttpResult> {
   try {
     const principal = await deps.authenticate(req.authorization);
     const filter = parseAgendaQuery(req.params);
     const records = await deps.agenda.list(principal, req.veterinaryId, filter);
-    return { status: 200, body: { appointments: records.map(toAppointmentResponse) } };
+    const names = await petNamesFor(deps.pets, records);
+    return {
+      status: 200,
+      body: { appointments: records.map((r) => toAppointmentResponse(r, names.get(r.petId) ?? null)) },
+    };
   } catch (error) {
     return failure(error, req.now);
   }
@@ -297,17 +317,21 @@ export interface OwnerListRequest {
 // GET /api/me/appointments?from=&to= → 200. Cada cita incluye el nombre de la clínica.
 export async function handleOwnerAppointments(
   req: OwnerListRequest,
-  deps: { authenticate: Authenticate; owner: OwnerAppointmentsUseCase }
+  deps: { authenticate: Authenticate; owner: OwnerAppointmentsUseCase; pets?: IPetDirectory }
 ): Promise<HttpResult> {
   try {
     const principal = await deps.authenticate(req.authorization);
     const from = parseDate(req.params.get('from'), 'from');
     const to = parseDate(req.params.get('to'), 'to');
     const views = await deps.owner.list(principal, from, to);
+    const names = await petNamesFor(deps.pets, views.map((v) => v.appointment));
     return {
       status: 200,
       body: {
-        appointments: views.map((v) => ({ ...toAppointmentResponse(v.appointment), clinicName: v.clinicName })),
+        appointments: views.map((v) => ({
+          ...toAppointmentResponse(v.appointment, names.get(v.appointment.petId) ?? null),
+          clinicName: v.clinicName,
+        })),
       },
     };
   } catch (error) {

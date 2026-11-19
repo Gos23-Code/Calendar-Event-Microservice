@@ -141,13 +141,11 @@ describe('CreateClinicAppointmentUseCase', () => {
       );
     });
 
-    it('mascota inexistente → 404 PET_NOT_FOUND', async () => {
+    it('mascota que la semilla no conoce: la valida Veterinary; la cita se crea sin dueño conocido', async () => {
       const useCase = new CreateClinicAppointmentUseCase(makeDeps());
-      await expectAppError(
-        useCase.execute(clinicPrincipal(), { ...baseInput, petId: 'mascota-inexistente' }),
-        404,
-        'PET_NOT_FOUND'
-      );
+      const result = await useCase.execute(clinicPrincipal(), { ...baseInput, petId: 'mascota-inexistente' });
+      expect(result.petId).toBe('mascota-inexistente');
+      expect(result.ownerUserId).toBeNull();
     });
   });
 

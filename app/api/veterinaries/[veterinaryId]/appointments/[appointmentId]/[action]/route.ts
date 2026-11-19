@@ -19,7 +19,7 @@ export async function PATCH(
 
     const result = await handleAppointmentAction(
       { authorization: request.headers.get('authorization'), veterinaryId, appointmentId, action, body, now },
-      { authenticate: deps.authenticate, lifecycle: deps.lifecycle }
+      { authenticate: deps.authenticate, lifecycle: deps.lifecycle, pets: deps.petDirectory }
     );
     return NextResponse.json(result.body, { status: result.status });
   } catch (error) {

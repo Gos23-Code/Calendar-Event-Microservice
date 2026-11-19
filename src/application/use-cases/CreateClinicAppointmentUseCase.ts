@@ -78,10 +78,7 @@ export class CreateClinicAppointmentUseCase {
       throw new AppError(403, 'LICENSE_REQUIRED', 'El servicio requiere un profesional con licencia verificada');
     }
 
-    const pet = await this.deps.pets.getPet(input.petId);
-    if (!pet) {
-      throw new AppError(404, 'PET_NOT_FOUND', 'La mascota no existe');
-    }
+    // La existencia y la compartición de la mascota ya las resolvió Veterinary en el paso 2 (hasAccess).
 
     // 4. Empleado y franja (404 si el empleado no es de la clínica, 409 si la franja no está libre)
     await findAvailableSlot(
@@ -97,13 +94,17 @@ export class CreateClinicAppointmentUseCase {
       }
     );
 
+    // Dueño para notificar. Pets aún no devuelve el ID del dueño (solo isOwner), así que se toma de la semilla.
+    // Si no se conoce, la cita se guarda igual y no se notifica (el notificador responde SKIPPED).
+    const ownerUserId = (await this.deps.pets.getPet(input.petId))?.ownerUserId ?? null;
+
     // 5. Persistir. La base también valida la doble reserva (no_overlap).
     const record: AppointmentRecord = {
       id: this.deps.newId(),
       veterinaryId: input.veterinaryId,
       employeeId: input.employeeId,
       petId: input.petId,
-      ownerUserId: pet.ownerUserId,
+      ownerUserId,
       serviceId: service.serviceId,
       serviceName: service.name,
       durationMinutes: service.durationMinutes,

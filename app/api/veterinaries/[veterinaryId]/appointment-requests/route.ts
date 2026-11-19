@@ -18,7 +18,7 @@ export async function POST(
 
     const result = await handleRequestAppointment(
       { authorization: request.headers.get('authorization'), veterinaryId, body, now },
-      { authenticate: deps.authenticate, useCase: deps.requestUseCase }
+      { authenticate: deps.authenticate, useCase: deps.requestUseCase, pets: deps.petDirectory }
     );
     return NextResponse.json(result.body, { status: result.status });
   } catch (error) {

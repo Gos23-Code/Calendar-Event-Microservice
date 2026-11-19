@@ -54,6 +54,7 @@ describe('getAppointmentHttpDeps', () => {
       NEXT_PUBLIC_SUPABASE_URL: 'https://abc.supabase.co',
       SUPABASE_SERVICE_ROLE_KEY: 'service-key',
       VETERINARY_SERVICE_URL: 'https://vet.example',
+      PETS_SERVICE_URL: 'https://pets.example',
       INTERNAL_API_KEY: 'k',
       JWT_JWKS_URL: 'https://user/.well-known/jwks.json',
       JWT_ISSUER: 'myanimalog-user-service',
